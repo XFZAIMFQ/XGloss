@@ -1,4 +1,12 @@
-import { tokenize, countTokens, contextAround, type Token } from '../../domain/vocabulary'
+import {
+    tokenize,
+    countTokens,
+    contextAround,
+    highlightKind,
+    highlightKinds,
+    type HighlightKind,
+    type Token,
+} from '../../domain/vocabulary'
 import type { Word } from '../../domain/models'
 
 interface TextBlock {
@@ -23,7 +31,7 @@ export class PageAnalyzer {
     private blocksByParent = new Map<Element, Set<TextBlock>>()
     private cleanupIterator: MapIterator<[Text, TextBlock]> | undefined
     private counts = new Map<string, number>()
-    private states = new Map<string, string>()
+    private words = new Map<string, Word>()
     private visible = new Set<Element>()
     private observed = new Set<Element>()
     private walkers: TreeWalker[] = []
@@ -36,7 +44,7 @@ export class PageAnalyzer {
     private enabled = true
     private mutationObserver: MutationObserver
     private intersectionObserver: IntersectionObserver
-    private highlights = new Map<string, Highlight>()
+    private highlights = new Map<HighlightKind, Highlight>()
 
     constructor(
         private root: HTMLElement,
@@ -71,7 +79,7 @@ export class PageAnalyzer {
     }
 
     setWords(words: Word[]) {
-        this.states = new Map(words.map((word) => [word.key, word.state]))
+        this.words = new Map(words.map((word) => [word.key, word]))
         this.schedulePaint()
     }
 
@@ -94,7 +102,7 @@ export class PageAnalyzer {
         cancelAnimationFrame(this.paintFrame)
         this.mutationObserver.disconnect()
         this.intersectionObserver.disconnect()
-        for (const state of ['unknown', 'learning']) CSS.highlights?.delete(`xgloss-${state}`)
+        for (const kind of highlightKinds) CSS.highlights?.delete(`xgloss-${kind}`)
         this.highlights.clear()
         this.blocks.clear()
         this.blocksByParent.clear()
@@ -158,7 +166,7 @@ export class PageAnalyzer {
                 ? '达到分析预算，当前结果为部分内容'
                 : this.walkers.length || this.dirty.size
                   ? '正在分批分析已加载内容…'
-                  : '已完成当前已加载内容的分析',
+                  : '',
         })
         this.schedulePaint()
         if ((this.walkers.length && !this.limited) || this.dirty.size || this.cleanupIterator) this.schedule()
@@ -223,9 +231,9 @@ export class PageAnalyzer {
         if (!('highlights' in CSS)) return
         for (const highlight of this.highlights.values()) highlight.clear()
         if (!this.enabled) return
-        for (const state of ['unknown', 'learning']) {
-            if (!this.highlights.has(state)) this.highlights.set(state, new Highlight())
-            CSS.highlights.set(`xgloss-${state}`, this.highlights.get(state)!)
+        for (const kind of highlightKinds) {
+            if (!this.highlights.has(kind)) this.highlights.set(kind, new Highlight())
+            CSS.highlights.set(`xgloss-${kind}`, this.highlights.get(kind)!)
         }
         let count = 0
         for (const block of [...this.visible].flatMap((parent) => [
@@ -233,13 +241,13 @@ export class PageAnalyzer {
         ])) {
             if (!block.node.isConnected) continue
             for (const token of block.tokens) {
-                const state = this.states.get(token.key) ?? 'unknown'
-                if (state === 'known' || state === 'ignored' || token.end > block.node.length) continue
+                const kind = highlightKind(this.words.get(token.key))
+                if (!kind || token.end > block.node.length) continue
                 if (++count > maxRanges) return
                 const range = new Range()
                 range.setStart(block.node, token.start)
                 range.setEnd(block.node, token.end)
-                this.highlights.get(state)?.add(range)
+                this.highlights.get(kind)?.add(range)
             }
         }
     }

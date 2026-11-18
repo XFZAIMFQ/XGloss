@@ -1,19 +1,31 @@
 import { openDB, type DBSchema } from 'idb'
-import type { Encounter, ReadingProgress, Word } from '../domain/models'
+import type { Encounter, LearningActivity, PdfBookmark, ReadingProgress, Word } from '../domain/models'
 
 interface XGlossDatabase extends DBSchema {
     words: { key: string; value: Word }
-    encounters: { key: string; value: Encounter; indexes: { wordKey: string } }
+    encounters: { key: string; value: Encounter; indexes: { wordKey: string; wordDate: [string, number] } }
+    activities: { key: string; value: LearningActivity; indexes: { createdAt: number } }
+    bookmarks: { key: [string, number]; value: PdfBookmark; indexes: { documentId: string } }
     translations: { key: string; value: { key: string; text: string; createdAt: number } }
     progress: { key: string; value: ReadingProgress }
 }
 
-export const database = openDB<XGlossDatabase>('xgloss', 1, {
-    upgrade(db) {
-        db.createObjectStore('words', { keyPath: 'key' })
-        const encounters = db.createObjectStore('encounters', { keyPath: 'id' })
-        encounters.createIndex('wordKey', 'wordKey')
-        db.createObjectStore('translations', { keyPath: 'key' })
-        db.createObjectStore('progress', { keyPath: 'id' })
+export const database = openDB<XGlossDatabase>('xgloss', 2, {
+    upgrade(db, oldVersion, _newVersion, tx) {
+        if (oldVersion < 1) {
+            db.createObjectStore('words', { keyPath: 'key' })
+            const encounters = db.createObjectStore('encounters', { keyPath: 'id' })
+            encounters.createIndex('wordKey', 'wordKey')
+            db.createObjectStore('translations', { keyPath: 'key' })
+            db.createObjectStore('progress', { keyPath: 'id' })
+        }
+        if (oldVersion < 2) {
+            tx.objectStore('encounters').createIndex('wordDate', ['wordKey', 'createdAt'])
+            db.createObjectStore('activities', { keyPath: 'id' }).createIndex('createdAt', 'createdAt')
+            db.createObjectStore('bookmarks', { keyPath: ['documentId', 'page'] }).createIndex(
+                'documentId',
+                'documentId',
+            )
+        }
     },
 })

@@ -3,29 +3,73 @@ import { onMounted, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import { errorMessage } from '../../domain/models'
 import { request } from '../../platform/messages'
-import { BookOpen, FileText, Settings2, ArrowUpRight, Highlighter, HardDrive } from '@lucide/vue'
+import { webHostname } from '../../platform/web-site'
+import { BookOpen, FileText, Settings2, ArrowUpRight, ScanText, HardDrive } from '@lucide/vue'
 const error = ref('')
 const wordCount = ref(0)
+const currentPdf = ref('')
+const siteReading = ref<{ tabId: number; site: string; enabled: boolean }>()
+const updating = ref(false)
+
+async function ensureAttached(tabId: number) {
+    const attached = await browser.tabs
+        .sendMessage(tabId, { event: 'siteReadingPing' }, { frameId: 0 })
+        .catch(() => false)
+    if (attached !== true)
+        await browser.scripting.executeScript({ target: { tabId }, files: ['/content-scripts/web.js'] })
+}
+
 onMounted(async () => {
     try {
-        wordCount.value = (await request('words')).length
+        const [words, [tab]] = await Promise.all([
+            request('words'),
+            browser.tabs.query({ active: true, currentWindow: true }),
+        ])
+        wordCount.value = words.length
+        const url = tab?.url && URL.canParse(tab.url) ? new URL(tab.url) : null
+        if (url && ['http:', 'https:'].includes(url.protocol) && /\.pdf$/i.test(url.pathname)) {
+            currentPdf.value = url.href
+            return
+        }
+        const site = webHostname(tab?.url)
+        if (!site || tab?.id === undefined) return
+        const { analysis } = await request('siteReading', tab.id)
+        siteReading.value = { tabId: tab.id, site, enabled: analysis }
+        if (analysis) {
+            updating.value = true
+            await ensureAttached(tab.id)
+        }
     } catch (reason) {
-        error.value = errorMessage(reason)
+        error.value = errorMessage(reason) + '。请检查扩展的站点访问权限。'
+    } finally {
+        updating.value = false
     }
 })
-async function enable() {
+async function toggleAnalysis() {
+    const current = siteReading.value
+    if (!current || updating.value) return
+    updating.value = true
+    error.value = ''
     try {
-        const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
-        if (!tab?.id) throw new Error('当前标签页不可用')
-        await browser.scripting.executeScript({ target: { tabId: tab.id }, files: ['/web.js'] })
-        window.close()
+        const enabled = !current.enabled
+        await request('setSiteAnalysis', { tabId: current.tabId, site: current.site, enabled })
+        current.enabled = enabled
+        if (enabled) await ensureAttached(current.tabId)
     } catch (reason) {
-        error.value = errorMessage(reason) + '。请在普通网页上使用，PDF 可通过阅读器打开。'
+        error.value = errorMessage(reason) + '。请检查扩展的站点访问权限。'
+    } finally {
+        updating.value = false
     }
 }
 async function open(page: '/reader.html' | '/library.html' | '/options.html') {
-    await browser.tabs.create({ url: browser.runtime.getURL(page) })
-    window.close()
+    try {
+        const url = new URL(browser.runtime.getURL(page))
+        if (page === '/reader.html' && currentPdf.value) url.searchParams.set('url', currentPdf.value)
+        await browser.tabs.create({ url: url.href })
+        window.close()
+    } catch (reason) {
+        error.value = errorMessage(reason)
+    }
 }
 </script>
 <template>
@@ -40,10 +84,20 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
             </button>
         </div>
         <p class="popup-caption">把正在阅读的单词，变成自己的词汇。</p>
-        <button class="primary popup-enable" @click="enable">
-            <Highlighter :size="19" />
-            开启 / 关闭当前网页
-            <ArrowUpRight :size="17" />
+        <button
+            v-if="siteReading"
+            class="popup-enable"
+            :class="{ primary: siteReading.enabled }"
+            :aria-pressed="siteReading.enabled"
+            :disabled="updating"
+            @click="toggleAnalysis"
+        >
+            <ScanText :size="19" />
+            <span class="site-label">
+                分析此网站
+                <small>{{ siteReading.site }}</small>
+            </span>
+            <span>{{ siteReading.enabled ? '开启' : '停用' }}</span>
         </button>
         <div class="popup-links">
             <button @click="open('/library.html')">
@@ -57,8 +111,8 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
             <button @click="open('/reader.html')">
                 <FileText :size="20" />
                 <span>
-                    PDF 阅读器
-                    <small>打开文档，边读边积累</small>
+                    {{ currentPdf ? '用 XGloss 打开当前 PDF' : 'PDF 阅读器' }}
+                    <small>{{ currentPdf ? '在阅读器中查词和标记' : '打开文档，边读边积累' }}</small>
                 </span>
                 <ArrowUpRight :size="16" />
             </button>
@@ -108,6 +162,17 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
 }
 .popup-enable > :last-child {
     margin-left: auto;
+}
+.site-label {
+    min-width: 0;
+    text-align: left;
+}
+.site-label small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
 }
 .popup-links {
     display: grid;

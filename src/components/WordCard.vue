@@ -1,19 +1,55 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { errorMessage, type DictionaryEntry, type WordSource, type WordState } from '../domain/models'
-import { request } from '../platform/messages'
-import { X, Volume2, BookmarkPlus, Check, EyeOff, Sparkles } from '@lucide/vue'
+import {
+    errorMessage,
+    type DefinitionMode,
+    type DictionaryEntry,
+    type WordRating,
+    type WordSource,
+} from '../domain/models'
+import { newRequestId, request } from '../platform/messages'
+import { dictionaryMeanings } from '../domain/definitions'
+import { ratingLabel } from '../domain/vocabulary'
+import WordRatingControls from './WordRatingControls.vue'
+import SpotlightButton from './SpotlightButton.vue'
+import { X, Volume2, Sparkles } from '@lucide/vue'
 
-const props = defineProps<{ text: string; source: WordSource }>()
+const props = withDefaults(
+    defineProps<{
+        text: string
+        source: WordSource
+        rating: WordRating | undefined
+        saveSource?: boolean
+        spotlight?: { enabled: boolean; setEnabled: (enabled: boolean) => void | Promise<void> }
+    }>(),
+    { saveSource: true, spotlight: undefined },
+)
 const emit = defineEmits<{ saved: []; close: [] }>()
 const entry = ref<DictionaryEntry | null>(null)
 const translation = ref('')
 const status = ref('')
 const error = ref('')
 const busy = ref(false)
+const saving = ref(false)
+const loading = ref(false)
+const mode = ref<DefinitionMode>('simple')
+const allMeanings = ref(false)
+const savedRating = ref<WordRating>()
+let preferredMode: Promise<DefinitionMode> | undefined
+const meanings = computed(() => dictionaryMeanings(entry.value, mode.value))
+const previewCount = 4
+const visibleMeanings = computed(() =>
+    mode.value === 'simple' && !allMeanings.value ? meanings.value.slice(0, previewCount) : meanings.value,
+)
 let generation = 0
 let translationId = ''
 const canSave = computed(() => props.text.length <= 200)
+watch(
+    () => props.rating,
+    () => {
+        savedRating.value = undefined
+    },
+)
 
 function cancel() {
     if (translationId) void request('cancelTranslation', translationId).catch(() => undefined)
@@ -29,36 +65,67 @@ watch(
         translation.value = ''
         status.value = ''
         error.value = ''
+        loading.value = true
+        allMeanings.value = false
+        savedRating.value = undefined
         try {
-            const result = text.length <= 200 ? await request('lookup', text) : null
-            if (current === generation) entry.value = result
+            preferredMode ??= request('definitionMode').catch(() => 'simple')
+            const [result, preference] = await Promise.all([
+                text.length <= 200 ? request('lookup', text) : null,
+                preferredMode,
+            ])
+            if (current === generation) {
+                mode.value = preference
+                entry.value = result
+            }
         } catch (reason) {
             if (current === generation) error.value = errorMessage(reason)
+        } finally {
+            if (current === generation) loading.value = false
         }
     },
     { immediate: true },
 )
 
-async function save(state: WordState) {
+async function save(rating: WordRating) {
+    if (saving.value) return
     const current = generation
+    saving.value = true
     try {
-        await request('saveWord', { text: props.text, state, source: props.source })
+        await request('saveWord', {
+            text: props.text,
+            ...rating,
+            source: props.saveSource ? props.source : undefined,
+        })
         emit('saved')
         if (current !== generation) return
-        status.value = state === 'known' ? '已标记掌握' : state === 'ignored' ? '已忽略' : '已加入本地词库'
+        savedRating.value = rating
+        status.value = `已保存 · ${ratingLabel(rating)}`
         error.value = ''
     } catch (reason) {
         if (current === generation) error.value = errorMessage(reason)
+    } finally {
+        saving.value = false
     }
+}
+function toggleMode() {
+    cancel()
+    translation.value = ''
+    allMeanings.value = false
+    mode.value = mode.value === 'simple' ? 'detailed' : 'simple'
 }
 async function translate() {
     cancel()
-    const id = crypto.randomUUID()
+    const id = newRequestId()
     translationId = id
     busy.value = true
     error.value = ''
     try {
-        const result = await request('translate', { text: props.text, context: props.source.context }, id)
+        const result = await request(
+            'translate',
+            { text: props.text, context: props.source.context, detail: mode.value },
+            id,
+        )
         if (translationId === id) translation.value = result
     } catch (reason) {
         if (translationId === id) error.value = errorMessage(reason)
@@ -82,44 +149,82 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <section class="word-card">
-        <div class="card-toolbar">
-            <span>XGloss · 英语 → 中文</span>
-            <button class="icon-button" aria-label="关闭词卡" @click="emit('close')"><X :size="18" /></button>
-        </div>
-        <h2>{{ text }}</h2>
-        <div class="word-pronunciation">
-            <span>{{ entry?.phonetic }}</span>
-            <button class="icon-button" aria-label="朗读" @click="speak"><Volume2 :size="19" /></button>
-        </div>
-        <p class="definition">
-            {{ entry?.translation || entry?.definition || '本地词典暂无此词，可查询在线语境释义。' }}
-        </p>
-        <blockquote v-if="source.context">{{ source.context }}</blockquote>
-        <div v-if="canSave" class="card-state-actions">
-            <button class="primary" @click="save('learning')">
-                <BookmarkPlus :size="15" />
-                加入生词
+    <section class="word-card" :aria-label="`查词 · ${text}`">
+        <header class="card-toolbar">
+            <button type="button" class="icon-button" aria-label="朗读" title="朗读" @click="speak">
+                <Volume2 :size="16" />
             </button>
-            <button @click="save('known')">
-                <Check :size="15" />
-                已掌握
-            </button>
-            <button class="quiet" @click="save('ignored')">
-                <EyeOff :size="15" />
-                忽略
-            </button>
+            <h2 :title="text">{{ text }}</h2>
+            <div class="card-actions">
+                <button type="button" class="quiet detail-toggle" :disabled="loading" @click="toggleMode">
+                    {{ mode === 'simple' ? '详细释义' : '简洁释义' }}
+                </button>
+                <SpotlightButton
+                    v-if="spotlight"
+                    :enabled="spotlight.enabled"
+                    :set-enabled="spotlight.setEnabled"
+                />
+                <button
+                    type="button"
+                    class="icon-button"
+                    aria-label="关闭词卡"
+                    title="关闭词卡"
+                    @click="emit('close')"
+                >
+                    <X :size="17" />
+                </button>
+            </div>
+        </header>
+        <div class="word-card-content">
+            <p v-if="mode === 'detailed' && entry?.phonetic" class="word-pronunciation">
+                {{ entry.phonetic }}
+            </p>
+            <p v-if="loading" class="definition muted" role="status">正在查词…</p>
+            <template v-else-if="meanings.length">
+                <p v-if="mode === 'simple'" class="definition">
+                    {{ visibleMeanings.join(' · ') }}
+                    <button
+                        v-if="meanings.length > previewCount"
+                        type="button"
+                        class="quiet more-meanings"
+                        :aria-expanded="allMeanings"
+                        @click="allMeanings = !allMeanings"
+                    >
+                        {{ allMeanings ? '收起义项' : `更多 ${meanings.length - previewCount} 项` }}
+                    </button>
+                </p>
+                <p v-else class="definition">{{ visibleMeanings.join('\n') }}</p>
+            </template>
+            <p v-else class="definition muted">本地词典暂无释义。</p>
+            <blockquote v-if="mode === 'detailed' && source.context">{{ source.context }}</blockquote>
+            <p v-if="busy" class="definition translation muted" role="status">正在查询语境释义…</p>
+            <p v-else-if="translation" class="definition translation">{{ translation }}</p>
+            <p v-if="error" role="alert" class="error small">{{ error }}</p>
         </div>
-        <button v-if="!busy" class="online-lookup" @click="translate">
-            <Sparkles :size="15" />
-            在线语境释义
-        </button>
-        <button v-else class="online-lookup" @click="cancel">
-            <X :size="15" />
-            取消翻译
-        </button>
-        <p v-if="translation" class="definition translation">{{ translation }}</p>
-        <p v-if="status" role="status" class="success small">{{ status }}</p>
-        <p v-if="error" role="alert" class="error small">{{ error }}</p>
+        <footer class="card-footer">
+            <WordRatingControls
+                v-if="canSave"
+                :word="text"
+                :rating="savedRating ?? rating"
+                :busy="saving"
+                @rate="save"
+            />
+            <button
+                v-if="!busy"
+                type="button"
+                class="quiet online-lookup"
+                aria-label="在线语境释义"
+                title="在线语境释义"
+                @click="translate"
+            >
+                <Sparkles :size="14" />
+                语境
+            </button>
+            <button v-else type="button" class="quiet online-lookup" aria-label="取消翻译" @click="cancel">
+                <X :size="14" />
+                取消
+            </button>
+        </footer>
+        <span class="reading-announcement" role="status">{{ status }}</span>
     </section>
 </template>

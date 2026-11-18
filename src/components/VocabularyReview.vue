@@ -87,7 +87,7 @@ async function rate(state: WordState) {
     const word = current.value.word.text
     rating.value = true
     try {
-        await request('saveWord', { text: word, state })
+        await request('saveWord', { text: word, state, reviewed: true })
         emit('saved')
         if (currentGeneration !== generation) return
         index.value++

@@ -1,4 +1,20 @@
-import type { Word } from './models'
+import { learningLevels, type Word, type WordRating } from './models'
+
+export const highlightKinds = [
+    'unknown',
+    ...learningLevels.map((level) => `learning-${level}` as const),
+] as const
+export type HighlightKind = (typeof highlightKinds)[number]
+
+export function ratingLabel(rating: WordRating): string {
+    if (rating.state === 'learning') return `学习 ${rating.level ?? 1} 级`
+    return rating.state === 'known' ? '已掌握' : '已忽略'
+}
+
+export function highlightKind(rating: WordRating | undefined): HighlightKind | undefined {
+    if (!rating) return 'unknown'
+    if (rating.state === 'learning') return `learning-${rating.level ?? 1}`
+}
 
 export interface Token {
     text: string

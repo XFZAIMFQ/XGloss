@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { calculateCoverage, countTokens, normalizeWord, tokenize } from '../src/domain/vocabulary'
+import {
+    calculateCoverage,
+    countTokens,
+    highlightKind,
+    normalizeWord,
+    tokenize,
+} from '../src/domain/vocabulary'
 import { parseWordCsv } from '../src/domain/csv'
+import { dictionaryMeanings } from '../src/domain/definitions'
+import { activityStreaks, localDay, summarizeActivity } from '../src/domain/activity'
 
 describe('vocabulary statistics', () => {
     it('normalizes casing and apostrophes while excluding identifiers', () => {
@@ -21,6 +29,13 @@ describe('vocabulary statistics', () => {
     })
     it('keeps small samples unscored', () =>
         expect(calculateCoverage(new Map([['word', 1]]), []).percent).toBeNull())
+    it('uses the first highlight level for legacy words and removes mastered or ignored highlights', () => {
+        expect(highlightKind(undefined)).toBe('unknown')
+        expect(highlightKind({ state: 'learning' })).toBe('learning-1')
+        expect(highlightKind({ state: 'learning', level: 4 })).toBe('learning-4')
+        expect(highlightKind({ state: 'known' })).toBeUndefined()
+        expect(highlightKind({ state: 'ignored' })).toBeUndefined()
+    })
 })
 
 describe('CSV import', () => {
@@ -35,5 +50,43 @@ describe('CSV import', () => {
         expect(() => parseWordCsv('word,state\nhello,invalid')).toThrow()
         expect(() => parseWordCsv('word\n"unclosed')).toThrow('引号未闭合')
         expect(() => parseWordCsv('something\nhello')).toThrow('word 列')
+    })
+    it('keeps learning grades from new CSV and validates their state', () => {
+        expect(parseWordCsv('word,state,level\nregister,learning,4\nknown,known,').words[0]?.level).toBe(4)
+        expect(() => parseWordCsv('word,state,level\nregister,learning,5')).toThrow()
+        expect(() => parseWordCsv('word,state,level\nregister,ignored,4')).toThrow()
+    })
+})
+
+describe('dictionary presentation', () => {
+    it('strips known part-of-speech labels and merges duplicate glosses only in simple mode', () => {
+        const entry = {
+            word: 'hereafter',
+            phonetic: '',
+            definition: '',
+            exchange: '',
+            translation: 'n. 将来, 来世\nadv. 此后, 将来, 来世\n[法] 以后',
+        }
+        expect(dictionaryMeanings(entry, 'simple')).toEqual(['将来', '来世', '此后', '[法] 以后'])
+        expect(dictionaryMeanings(entry, 'detailed')[0]).toBe('n. 将来, 来世')
+    })
+})
+
+describe('learning activity', () => {
+    it('counts unique words per local date and preserves a streak through yesterday', () => {
+        const yesterday = new Date(2026, 10, 17, 12)
+        const start = new Date(2026, 10, 16)
+        const today = new Date(2026, 10, 18)
+        const counts = summarizeActivity(
+            [start, yesterday, yesterday].map((date, index) => ({
+                id: String(index),
+                wordKey: 'register',
+                kind: 'rated',
+                rating: { state: 'learning', level: 3 },
+                createdAt: date.getTime(),
+            })),
+        )
+        expect(counts).toEqual({ [localDay(start)]: 1, [localDay(yesterday)]: 1 })
+        expect(activityStreaks(counts, start, today)).toEqual({ current: 2, longest: 2 })
     })
 })

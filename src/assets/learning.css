@@ -46,22 +46,43 @@
 }
 .heatmap {
     display: grid;
-    grid-template-rows: repeat(7, 13px);
-    grid-auto-flow: column;
+    grid-template-columns: 22px;
+    grid-template-rows: 18px repeat(7, 13px);
     grid-auto-columns: 13px;
     gap: 4px;
     width: fit-content;
     margin: 0 auto;
 }
-.heatmap > span {
+.heatmap-label {
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--muted);
+}
+.heatmap-cell,
+.heatmap-legend i {
     background: var(--soft);
     border-radius: 3px;
 }
-.heatmap .heatmap-active {
-    background: var(--lime);
+.heatmap-cell {
+    border: 0;
+    min-height: 0;
+    padding: 0;
 }
-.heatmap .heatmap-future {
-    visibility: hidden;
+.heatmap-cell[aria-pressed='true'] {
+    outline: 1px solid var(--ink);
+    outline-offset: 1px;
+}
+.activity-panel [data-intensity='1'] {
+    background: #eaf1d2;
+}
+.activity-panel [data-intensity='2'] {
+    background: #d9e9a3;
+}
+.activity-panel [data-intensity='3'] {
+    background: #b8d652;
+}
+.activity-panel [data-intensity='4'] {
+    background: var(--lime);
 }
 .heatmap-legend {
     display: flex;
@@ -77,14 +98,6 @@
 .heatmap-legend i {
     height: 13px;
     width: 13px;
-    border-radius: 3px;
-    background: #d9e9a3;
-}
-.heatmap-legend i:nth-last-of-type(2) {
-    background: #b8d652;
-}
-.heatmap-legend i:last-of-type {
-    background: var(--lime);
 }
 .activity-row {
     display: flex;

@@ -1,18 +1,29 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WordCard from '../../components/WordCard.vue'
 import AppShell from '../../components/AppShell.vue'
 import VocabularyReview from '../../components/VocabularyReview.vue'
 import VocabularyStatistics from '../../components/VocabularyStatistics.vue'
 import { Plus, Search, Download, Upload, BookOpen, X, ArrowUpRight, Pin } from '@lucide/vue'
 import { parseWordCsv } from '../../domain/csv'
-import { errorMessage, type Encounter, type Word, type WordState } from '../../domain/models'
-import { onVocabularyChanged, request } from '../../platform/messages'
+import { dictionaryMeanings } from '../../domain/definitions'
+import { normalizeWord, ratingLabel } from '../../domain/vocabulary'
+import {
+    errorMessage,
+    learningLevels,
+    learningLevelSchema,
+    type Encounter,
+    type Word,
+    type WordRating,
+    type WordState,
+} from '../../domain/models'
+import { onVocabularyChanged, request, type Operations } from '../../platform/messages'
 const words = ref<Word[]>([])
 const query = ref('')
 const newWord = ref('')
 const adding = ref(false)
 const tab = ref('library')
+const inCollection = ref(false)
 const known = computed(() => words.value.filter((word) => word.state === 'known').length)
 const learning = computed(() => words.value.filter((word) => word.state === 'learning').length)
 const ignored = computed(() => words.value.filter((word) => word.state === 'ignored').length)
@@ -21,38 +32,104 @@ const progress = computed(() =>
 )
 function updateTab() {
     tab.value = ['#review', '#statistics'].includes(location.hash) ? location.hash.slice(1) : 'library'
+    inCollection.value = location.hash === '#collection'
+    selected.value = ''
+    detailLoading.value = ''
+    selectionGeneration++
 }
 const filter = ref('all')
 const selected = ref('')
+const selectedWord = computed(() => words.value.find((word) => word.key === selected.value))
 const encounters = ref<Encounter[]>([])
 const error = ref('')
 const status = ref('')
+const pageSize = 25
+const currentPage = ref(1)
+const ratingPending = ref(new Set<string>())
+const details = ref(new Map<string, Operations['wordDetails']['output'][number]>())
+const detailLoading = ref('')
+let selectionGeneration = 0
+let refreshGeneration = 0
 const filtered = computed(() =>
     words.value
         .filter(
             (word) =>
-                word.text.toLowerCase().includes(query.value.toLowerCase()) &&
-                (filter.value === 'all' || word.state === filter.value),
+                word.key.includes(normalizeWord(query.value)) &&
+                (filter.value === 'all' || word.state === filter.value || filter.value === ratingValue(word)),
         )
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, 300),
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key)),
 )
-const labels: Record<WordState, string> = { learning: '学习中', known: '已掌握', ignored: '已忽略' }
+const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)))
+const page = computed(() => Math.min(currentPage.value, pages.value))
+const rows = computed(() => filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+watch([query, filter], () => {
+    currentPage.value = 1
+})
+watch([rows, inCollection], async ([items, open], _previous, onCleanup) => {
+    let stale = false
+    onCleanup(() => {
+        stale = true
+    })
+    if (!items.length || !open) return
+    try {
+        const result = await request(
+            'wordDetails',
+            items.map((word) => word.key),
+        )
+        if (!stale) details.value = new Map(result.map((detail) => [detail.key, detail]))
+    } catch (reason) {
+        if (!stale) error.value = errorMessage(reason)
+    }
+})
+function ratingValue(word: Word) {
+    return word.state === 'learning' ? `level-${word.level ?? 1}` : word.state
+}
+function meaningFor(key: string) {
+    return dictionaryMeanings(details.value.get(key)?.entry ?? null, 'simple')
+        .slice(0, 3)
+        .join(' · ')
+}
 let unsubscribe: (() => void) | undefined
 async function refresh() {
+    const generation = ++refreshGeneration
     try {
-        words.value = await request('words')
+        const result = await request('words')
+        if (generation === refreshGeneration) words.value = result
     } catch (reason) {
-        error.value = errorMessage(reason)
+        if (generation === refreshGeneration) error.value = errorMessage(reason)
     }
 }
 async function choose(word: Word) {
+    const generation = ++selectionGeneration
+    detailLoading.value = word.key
     try {
         const records = await request('encounters', word.key)
-        encounters.value = records
-        selected.value = word.text
+        if (generation !== selectionGeneration) return
+        encounters.value = records.sort((a, b) => b.createdAt - a.createdAt)
+        selected.value = word.key
     } catch (reason) {
+        if (generation === selectionGeneration) error.value = errorMessage(reason)
+    } finally {
+        if (generation === selectionGeneration) detailLoading.value = ''
+    }
+}
+async function rate(word: Word, event: Event) {
+    const select = event.target as HTMLSelectElement
+    ratingPending.value.add(word.key)
+    error.value = ''
+    try {
+        const value = select.value
+        const rating: WordRating =
+            value === 'known' || value === 'ignored'
+                ? { state: value }
+                : { state: 'learning' as const, level: learningLevelSchema.parse(Number(value.slice(6))) }
+        await request('saveWord', { text: word.text, ...rating })
+        await refresh()
+    } catch (reason) {
+        select.value = ratingValue(word)
         error.value = errorMessage(reason)
+    } finally {
+        ratingPending.value.delete(word.key)
     }
 }
 function download(text: string, type: string, filename: string) {
@@ -74,7 +151,13 @@ function csv() {
     const escape = (text: string) =>
         '"' + (/^[=+@-]/.test(text) ? "'" + text : text).replaceAll('"', '""') + '"'
     download(
-        '\uFEFFword,state\r\n' + words.value.map((word) => `${escape(word.text)},${word.state}`).join('\r\n'),
+        '\uFEFFword,state,level\r\n' +
+            words.value
+                .map(
+                    (word) =>
+                        `${escape(word.text)},${word.state},${word.state === 'learning' ? (word.level ?? 1) : ''}`,
+                )
+                .join('\r\n'),
         'text/csv;charset=utf-8',
         'xgloss-words.csv',
     )
@@ -105,6 +188,7 @@ async function addWords(state: WordState) {
         await request('saveWord', { text, state })
         newWord.value = ''
         adding.value = false
+        location.hash = 'collection'
         await refresh()
     } catch (reason) {
         error.value = errorMessage(reason)
@@ -124,6 +208,8 @@ onMounted(() => {
     unsubscribe = onVocabularyChanged(() => void refresh())
 })
 onBeforeUnmount(() => {
+    selectionGeneration++
+    refreshGeneration++
     unsubscribe?.()
     window.removeEventListener('hashchange', updateTab)
 })
@@ -132,8 +218,9 @@ onBeforeUnmount(() => {
     <AppShell :active="tab" :known="known">
         <template v-if="tab === 'library'">
             <header class="page-heading">
-                <h1>我的词库</h1>
-                <a class="button-link" href="reader.html">
+                <h1>{{ inCollection ? '阅读收藏' : '我的词库' }}</h1>
+                <a v-if="inCollection" class="button-link" href="#library">返回词库</a>
+                <a v-else class="button-link" href="reader.html">
                     <BookOpen :size="15" />
                     继续阅读
                 </a>
@@ -143,17 +230,19 @@ onBeforeUnmount(() => {
                     <Plus :size="18" />
                     添加单词
                 </button>
-                <div class="search-field">
+                <div v-if="inCollection" class="search-field">
                     <Search :size="20" />
                     <input v-model="query" placeholder="搜索或输入一个新单词" aria-label="搜索词库" />
                 </div>
             </div>
-            <article class="collection-card">
+            <p v-if="error" class="error" role="alert">{{ error }}</p>
+            <p v-if="status" class="success" role="status">{{ status }}</p>
+            <article v-if="!inCollection" class="collection-card">
                 <div class="collection-top">
                     <span class="language-chip">EN</span>
                     <Pin :size="17" class="orange-text" />
                 </div>
-                <h2>我的词库</h2>
+                <h2>阅读收藏</h2>
                 <p>在网页与 PDF 阅读中收藏的单词和原句。</p>
                 <div class="collection-bottom">
                     <span>
@@ -183,19 +272,24 @@ onBeforeUnmount(() => {
                         已忽略
                     </span>
                 </div>
+                <a class="button-link collection-open" href="#collection">
+                    打开收藏集
+                    <ArrowUpRight :size="16" />
+                </a>
             </article>
-            <section class="panel word-list-panel">
+            <section v-else class="panel word-list-panel">
                 <div class="word-list-heading">
                     <h2>词条</h2>
                     <select v-model="filter" aria-label="筛选词汇状态">
                         <option value="all">全部状态</option>
                         <option value="learning">学习中</option>
+                        <option v-for="level in learningLevels" :key="level" :value="`level-${level}`">
+                            学习 {{ level }} 级
+                        </option>
                         <option value="known">已掌握</option>
                         <option value="ignored">已忽略</option>
                     </select>
                 </div>
-                <p v-if="error" class="error" role="alert">{{ error }}</p>
-                <p v-if="status" class="success" role="status">{{ status }}</p>
                 <div v-if="!words.length" class="empty">
                     <div class="empty-icon"><BookOpen :size="30" /></div>
                     <h2>收藏阅读中的第一个单词</h2>
@@ -205,12 +299,35 @@ onBeforeUnmount(() => {
                         <ArrowUpRight :size="16" />
                     </a>
                 </div>
-                <button v-for="word in filtered" :key="word.key" class="word-row" @click="choose(word)">
-                    <strong>{{ word.text }}</strong>
-                    <span class="word-state" :class="'count-' + word.state">{{ labels[word.state] }}</span>
-                </button>
+                <div v-for="word in rows" :key="word.key" class="word-row collection-word">
+                    <div class="collection-term">
+                        <button class="quiet" :disabled="detailLoading === word.key" @click="choose(word)">
+                            <strong>{{ word.text }}</strong>
+                        </button>
+                        <p v-if="details.get(word.key)?.encounter?.context" class="muted small">
+                            {{ details.get(word.key)?.encounter?.context }}
+                        </p>
+                    </div>
+                    <p v-if="meaningFor(word.key)" class="collection-meaning">{{ meaningFor(word.key) }}</p>
+                    <select
+                        :aria-label="`${word.text} · ${ratingLabel(word)}`"
+                        :value="ratingValue(word)"
+                        :disabled="ratingPending.has(word.key)"
+                        @change="rate(word, $event)"
+                    >
+                        <option v-for="level in learningLevels" :key="level" :value="`level-${level}`">
+                            学习 {{ level }} 级
+                        </option>
+                        <option value="known">已掌握</option>
+                        <option value="ignored">已忽略</option>
+                    </select>
+                </div>
                 <p v-if="words.length && !filtered.length" class="muted small">没有符合条件的词条。</p>
-                <p v-if="filtered.length === 300" class="muted small">当前显示前 300 项，可搜索缩小范围。</p>
+                <nav v-if="pages > 1" class="row collection-pages" aria-label="词库分页">
+                    <button :disabled="page <= 1" @click="currentPage = page - 1">上一页</button>
+                    <span>第 {{ page }} / {{ pages }} 页</span>
+                    <button :disabled="page >= pages" @click="currentPage = page + 1">下一页</button>
+                </nav>
             </section>
             <div class="import-actions">
                 <button @click="backup">
@@ -254,10 +371,12 @@ onBeforeUnmount(() => {
                 </div>
             </form>
         </div>
-        <div v-if="selected" class="modal-backdrop" @click.self="selected = ''">
+        <div v-if="selectedWord" class="modal-backdrop" @click.self="selected = ''">
             <div class="word-detail">
                 <WordCard
-                    :text="selected"
+                    :text="selectedWord.text"
+                    :rating="selectedWord"
+                    :save-source="false"
                     :source="encounters[0] ?? { title: '本地词库', url: '', context: '' }"
                     @saved="refresh"
                     @close="selected = ''"
@@ -298,5 +417,43 @@ onBeforeUnmount(() => {
 .encounter-list {
     padding: 0 24px 20px;
     font-size: 13px;
+}
+.collection-open,
+.collection-pages {
+    margin-top: 16px;
+}
+.collection-word {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+    gap: 12px;
+}
+.collection-word select {
+    grid-column: 3;
+    width: auto;
+}
+.collection-term button {
+    padding-left: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+.collection-term p {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.collection-meaning {
+    overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+    .collection-word {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .collection-meaning {
+        grid-row: 2;
+    }
+    .collection-word select {
+        grid-column: 2;
+        grid-row: 1;
+    }
 }
 </style>

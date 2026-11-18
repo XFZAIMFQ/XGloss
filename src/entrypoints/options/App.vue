@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { browser } from 'wxt/browser'
-import { defaultTranslationSettings, errorMessage } from '../../domain/models'
+import {
+    defaultTranslationSettings,
+    definitionModeSchema,
+    errorMessage,
+    type DefinitionMode,
+} from '../../domain/models'
 import { completionEndpoint } from '../../services/openai-translation'
 import { request } from '../../platform/messages'
 import AppShell from '../../components/AppShell.vue'
@@ -11,15 +16,37 @@ const status = ref('')
 const error = ref('')
 const busy = ref(false)
 const ready = ref(false)
+const definitionMode = ref<DefinitionMode>('simple')
+const savingMode = ref(false)
+const modeStatus = ref('')
 onMounted(async () => {
     try {
-        Object.assign(settings, await request('settings'))
+        const [translation, mode] = await Promise.all([request('settings'), request('definitionMode')])
+        Object.assign(settings, translation)
+        definitionMode.value = mode
     } catch (reason) {
         error.value = errorMessage(reason)
     } finally {
         ready.value = true
     }
 })
+async function updateDefinitionMode(event: Event) {
+    const select = event.target as HTMLSelectElement
+    savingMode.value = true
+    modeStatus.value = ''
+    error.value = ''
+    try {
+        const mode = definitionModeSchema.parse(select.value)
+        await request('saveDefinitionMode', mode)
+        definitionMode.value = mode
+        modeStatus.value = '词卡显示偏好已保存'
+    } catch (reason) {
+        select.value = definitionMode.value
+        error.value = errorMessage(reason)
+    } finally {
+        savingMode.value = false
+    }
+}
 async function save() {
     error.value = ''
     status.value = ''
@@ -116,5 +143,16 @@ async function test() {
             <p v-if="status" role="status" class="success definition">{{ status }}</p>
             <p v-if="error" role="alert" class="error">{{ error }}</p>
         </form>
+        <section v-if="ready" class="panel settings-panel">
+            <h2>词卡显示</h2>
+            <label class="field">
+                <span>默认释义</span>
+                <select :value="definitionMode" :disabled="savingMode" @change="updateDefinitionMode">
+                    <option value="simple">简洁</option>
+                    <option value="detailed">详细（词性、音标和原句）</option>
+                </select>
+            </label>
+            <p v-if="modeStatus" class="success" role="status">{{ modeStatus }}</p>
+        </section>
     </AppShell>
 </template>

@@ -73,4 +73,19 @@ describe('OpenAI-compatible translation', () => {
             ),
         ).not.toBe(key)
     })
+    it('uses different prompts and cache keys for simple and detailed lookups', async () => {
+        const input = { text: 'register', context: 'hardware register' }
+        const fetcher = vi
+            .fn()
+            .mockImplementation(
+                () => new Response(JSON.stringify({ choices: [{ message: { content: '寄存器' } }] })),
+            )
+        await requestTranslation(settings, { ...input, detail: 'simple' }, fetcher)
+        await requestTranslation(settings, { ...input, detail: 'detailed' }, fetcher)
+        expect(fetcher.mock.calls[0]![1].body).toContain('without part-of-speech labels')
+        expect(fetcher.mock.calls[1]![1].body).toContain('give its part of speech')
+        expect(await translationCacheKey(settings, { ...input, detail: 'simple' })).not.toBe(
+            await translationCacheKey(settings, { ...input, detail: 'detailed' }),
+        )
+    })
 })

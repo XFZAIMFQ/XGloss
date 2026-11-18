@@ -2,10 +2,14 @@ import { z } from 'zod'
 
 export const wordStateSchema = z.enum(['learning', 'known', 'ignored'])
 export type WordState = z.infer<typeof wordStateSchema>
-export const wordSchema = z.object({
+export const learningLevels = [1, 2, 3, 4] as const
+export const learningLevelSchema = z.literal(learningLevels)
+export type LearningLevel = z.infer<typeof learningLevelSchema>
+export const wordRatingSchema = z.object({ state: wordStateSchema, level: learningLevelSchema.optional() })
+export type WordRating = z.infer<typeof wordRatingSchema>
+export const wordSchema = wordRatingSchema.extend({
     key: z.string().min(1).max(200),
     text: z.string().min(1).max(200),
-    state: wordStateSchema,
     updatedAt: z.number().finite(),
 })
 export type Word = z.infer<typeof wordSchema>
@@ -23,11 +27,23 @@ export const encounterSchema = sourceSchema.extend({
     createdAt: z.number().finite(),
 })
 export type Encounter = z.infer<typeof encounterSchema>
-export const backupSchema = z.object({
+export const activitySchema = z.object({
+    id: z.string().uuid(),
+    wordKey: z.string().min(1).max(200),
+    kind: z.enum(['added', 'rated', 'reviewed']),
+    rating: wordRatingSchema,
+    createdAt: z.number().finite(),
+})
+export type LearningActivity = z.infer<typeof activitySchema>
+const legacyBackupSchema = z.object({
     version: z.literal(1),
     words: z.array(wordSchema).max(200_000),
     encounters: z.array(encounterSchema).max(500_000),
 })
+export const backupSchema = z.discriminatedUnion('version', [
+    legacyBackupSchema,
+    legacyBackupSchema.extend({ version: z.literal(2), activities: z.array(activitySchema).max(500_000) }),
+])
 export type Backup = z.infer<typeof backupSchema>
 export const translationSettingsSchema = z.object({
     baseUrl: z.string().max(2000),
@@ -47,8 +63,11 @@ export const defaultTranslationSettings: TranslationSettings = {
 export const translationInputSchema = z.object({
     text: z.string().trim().min(1).max(2000),
     context: z.string().max(3000).default(''),
+    detail: z.enum(['simple', 'detailed']).optional(),
 })
 export type TranslationInput = z.infer<typeof translationInputSchema>
+export const definitionModeSchema = z.enum(['simple', 'detailed'])
+export type DefinitionMode = z.infer<typeof definitionModeSchema>
 export interface DictionaryEntry {
     word: string
     phonetic: string
@@ -61,6 +80,11 @@ export interface ReadingProgress {
     page: number
     updatedAt: number
 }
+export const pdfBookmarkSchema = z.object({
+    documentId: z.string().min(1).max(500),
+    page: z.number().int().positive(),
+})
+export type PdfBookmark = z.infer<typeof pdfBookmarkSchema>
 
 export function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : '操作失败，请重试'

@@ -1,0 +1,15 @@
+::highlight(xgloss-unknown) {
+    background-color: #78b4e747;
+}
+::highlight(xgloss-learning-1) {
+    background-color: #ffb64f85;
+}
+::highlight(xgloss-learning-2) {
+    background-color: #ffb64f55;
+}
+::highlight(xgloss-learning-3) {
+    background-color: #ffb64f2e;
+}
+::highlight(xgloss-learning-4) {
+    text-decoration: underline #cb8929;
+}
