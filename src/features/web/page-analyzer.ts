@@ -1,13 +1,14 @@
+import { t } from '../../i18n'
 import {
     tokenize,
     countTokens,
-    contextAround,
     highlightKind,
     highlightKinds,
     type HighlightKind,
     type Token,
 } from '../../domain/vocabulary'
 import type { Word } from '../../domain/models'
+import { contextAt } from '../reading/selection-context'
 
 interface TextBlock {
     node: Text
@@ -90,8 +91,11 @@ export class PageAnalyzer {
 
     contextForWord(word: string): string {
         for (const block of this.blocks.values()) {
-            if (block.counts.has(word) && block.node.isConnected)
-                return contextAround(block.parent.textContent ?? '', word)
+            if (!block.counts.has(word) || !block.node.isConnected) continue
+            const token = block.tokens.find(
+                ({ key, text, start, end }) => key === word && block.node.data.slice(start, end) === text,
+            )
+            if (token) return contextAt(block.node, token.start, token.text)
         }
         return ''
     }
@@ -163,9 +167,9 @@ export class PageAnalyzer {
         this.changed({
             counts: new Map(this.counts),
             status: this.limited
-                ? '达到分析预算，当前结果为部分内容'
+                ? t('web.budget')
                 : this.walkers.length || this.dirty.size
-                  ? '正在分批分析已加载内容…'
+                  ? t('web.analyzing')
                   : '',
         })
         this.schedulePaint()

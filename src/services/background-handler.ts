@@ -1,7 +1,13 @@
+import { t } from '../i18n'
 import { browser } from 'wxt/browser'
 import { z } from 'zod'
 import { database } from '../data/database'
-import { exportVocabulary, importVocabulary, saveWord } from '../data/vocabulary-repository'
+import {
+    exportVocabulary,
+    importVocabulary,
+    loadEncounterMeaning,
+    saveWord,
+} from '../data/vocabulary-repository'
 import {
     loadDefinitionMode,
     loadRecall,
@@ -19,8 +25,10 @@ import { summarizeActivity } from '../domain/activity'
 import {
     errorMessage,
     pdfBookmarkSchema,
+    savedMeaningSchema,
     sourceSchema,
     translationInputSchema,
+    type TranslationResult,
     wordRatingSchema,
 } from '../domain/models'
 import { lookupDictionary } from './dictionary'
@@ -33,6 +41,14 @@ const envelopeSchema = z.object({
     input: z.unknown().optional(),
 })
 const controllers = new Map<string, AbortController>()
+const ongoingTranslations = new Map<
+    string,
+    {
+        controller: AbortController
+        result: Promise<TranslationResult>
+        consumers: number
+    }
+>()
 const privileged = new Set([
     'settings',
     'saveSettings',
@@ -53,7 +69,7 @@ const privileged = new Set([
 function activityRange(input: unknown, maxDays: number) {
     const date = z.number().int().min(0).max(8.64e15)
     const { from, to } = z.object({ from: date, to: date }).parse(input)
-    if (to <= from || to - from > maxDays * 86_400_000) throw new Error('学习活动日期范围无效')
+    if (to <= from || to - from > maxDays * 86_400_000) throw new Error(t('background.invalidActivityRange'))
     return IDBKeyRange.bound(from, to, false, true)
 }
 
@@ -74,7 +90,8 @@ async function notifyChanged(message: { event: string; site?: string }) {
 async function resolveWebSite(sender: Browser.runtime.MessageSender, tabId?: number) {
     const url = tabId === undefined ? sender.url : (await browser.tabs.get(tabId)).url
     const site = webHostname(url)
-    if (!site || (tabId === undefined && sender.frameId !== 0)) throw new Error('当前页面不支持网页分析')
+    if (!site || (tabId === undefined && sender.frameId !== 0))
+        throw new Error(t('background.unsupportedPage'))
     return site
 }
 
@@ -82,17 +99,21 @@ export async function handleMessage(raw: unknown, sender: Browser.runtime.Messag
     try {
         const message = envelopeSchema.parse(raw)
         const extensionPage = sender.url?.startsWith(browser.runtime.getURL('/')) ?? false
-        if (privileged.has(message.operation) && !extensionPage) throw new Error('此操作仅限扩展页面')
+        if (privileged.has(message.operation) && !extensionPage)
+            throw new Error(t('background.extensionOnly'))
         if (
             ['settings', 'saveSettings', 'saveDefinitionMode'].includes(message.operation) &&
             sender.url !== browser.runtime.getURL('/options.html')
         ) {
-            throw new Error('此配置操作仅限设置页访问')
+            throw new Error(t('background.optionsOnly'))
         }
         const value = await execute(message, sender)
         return { ok: true, value }
     } catch (error) {
-        return { ok: false, error: error instanceof z.ZodError ? '输入数据格式无效' : errorMessage(error) }
+        return {
+            ok: false,
+            error: error instanceof z.ZodError ? t('background.invalidInput') : errorMessage(error),
+        }
     }
 }
 
@@ -104,7 +125,7 @@ async function execute(
         case 'siteReading': {
             const tabId = z.number().int().nonnegative().optional().parse(message.input)
             if (tabId !== undefined && !sender.url?.startsWith(browser.runtime.getURL('/')))
-                throw new Error('此操作仅限扩展页面')
+                throw new Error(t('background.extensionOnly'))
             return loadSiteReading(await resolveWebSite(sender, tabId))
         }
         case 'setSiteAnalysis': {
@@ -112,7 +133,7 @@ async function execute(
                 .object({ tabId: z.number().int().nonnegative(), site: z.string(), enabled: z.boolean() })
                 .parse(message.input)
             const site = await resolveWebSite(sender, input.tabId)
-            if (site !== input.site) throw new Error('当前标签页已切换网站，请重新打开扩展菜单')
+            if (site !== input.site) throw new Error(t('background.siteChanged'))
             await saveSiteReading(site, input.enabled)
             await notifyChanged({ event: 'siteReadingChanged', site })
             return null
@@ -129,9 +150,24 @@ async function execute(
             await saveRecall(z.boolean().parse(message.input))
             await notifyChanged({ event: 'candidateRecallChanged' })
             return null
+        case 'translationAvailable': {
+            const settings = await loadSettings()
+            return Boolean(settings.baseUrl.trim() && settings.model.trim())
+        }
+        case 'openTranslationSettings':
+            await browser.runtime.openOptionsPage()
+            return null
+        case 'cancelTranslation':
+        case 'translate': {
+            const owner = `${sender.tab?.id ?? sender.documentId ?? 'extension'}:${sender.frameId ?? 0}:`
+            if (message.operation === 'cancelTranslation') {
+                controllers.get(owner + z.string().uuid().parse(message.input))?.abort()
+                return null
+            }
+            return translate(owner + message.requestId, translationInputSchema.parse(message.input))
+        }
     }
     const db = await database
-    const owner = `${sender.tab?.id ?? 'extension'}:${sender.frameId ?? 0}:`
     switch (message.operation) {
         case 'words':
             return db.getAll('words')
@@ -141,13 +177,20 @@ async function execute(
                     text: z.string().trim().min(1).max(200),
                     source: sourceSchema.optional(),
                     reviewed: z.boolean().optional(),
+                    meaning: savedMeaningSchema.optional(),
                 })
                 .parse(message.input)
             if (input.state !== 'learning' && input.level !== undefined)
-                throw new Error('等级只适用于学习中词条')
+                throw new Error(t('rating.invalidLevel'))
             await saveWord(input.text, input.state, input.source, { ...input, id: message.requestId })
             await notifyChanged({ event: 'vocabularyChanged' })
             return null
+        }
+        case 'encounterMeaning': {
+            const input = z
+                .object({ text: z.string().trim().min(1).max(200), source: sourceSchema })
+                .parse(message.input)
+            return loadEncounterMeaning(input.text, input.source)
         }
         case 'lookup':
             return lookupDictionary(z.string().max(200).parse(message.input))
@@ -230,41 +273,69 @@ async function execute(
             else await db.delete('bookmarks', [documentId, page])
             return null
         }
-        case 'cancelTranslation': {
-            controllers.get(owner + z.string().uuid().parse(message.input))?.abort()
-            return null
-        }
-        case 'translate': {
-            const input = translationInputSchema.parse(message.input)
-            const settings = await loadSettings()
-            if (!settings.baseUrl.trim()) throw new Error('请先打开 XGloss 设置，配置翻译服务')
-            const endpoint = completionEndpoint(settings.baseUrl)
-            if (!(await browser.permissions.contains({ origins: [`${endpoint.origin}/*`] }))) {
-                throw new Error('翻译服务尚未授权，请在设置页保存并授权')
-            }
-            const key = await translationCacheKey(settings, input)
-            const cached = await db.get('translations', key)
-            if (cached) return cached.text
-            if (controllers.size >= 4) throw new Error('正在处理其他翻译，请稍后重试')
-            const controller = new AbortController()
-            const requestKey = owner + message.requestId
-            controllers.set(requestKey, controller)
-            try {
-                const text = await requestTranslation(settings, input, fetch, controller.signal)
-                await db.put('translations', { key, text, createdAt: Date.now() }).catch(() => undefined)
-                return text
-            } catch (error) {
-                if (controller.signal.aborted) throw new Error('翻译已取消', { cause: error })
-                if (error instanceof DOMException && ['TimeoutError', 'AbortError'].includes(error.name))
-                    throw new Error('翻译超时，请重试或调整超时时间', { cause: error })
-                if (error instanceof TypeError)
-                    throw new Error('无法连接翻译服务，请检查网络与服务地址', { cause: error })
-                throw error
-            } finally {
-                controllers.delete(requestKey)
-            }
-        }
         default:
-            throw new Error('不支持的操作')
+            throw new Error(t('background.unsupported'))
+    }
+}
+
+async function translate(requestKey: string, input: z.infer<typeof translationInputSchema>) {
+    if (controllers.size >= 64 || controllers.has(requestKey)) throw new Error(t('translation.busy'))
+    const controller = new AbortController()
+    controllers.set(requestKey, controller)
+    try {
+        const settings = await loadSettings()
+        if (!settings.baseUrl.trim() || !settings.model.trim()) throw new Error(t('translation.configure'))
+        const endpoint = completionEndpoint(settings.baseUrl)
+        if (!(await browser.permissions.contains({ origins: [`${endpoint.origin}/*`] }))) {
+            throw new Error(t('translation.permission'))
+        }
+        const key = await translationCacheKey(settings, input)
+        const db = await database
+        const cached = await db.get('translations', key)
+        controller.signal.throwIfAborted()
+        if (cached && 'result' in cached) return cached.result
+        let ongoing = ongoingTranslations.get(key)
+        if (!ongoing) {
+            if (ongoingTranslations.size >= 4) throw new Error(t('translation.busy'))
+            const upstream = new AbortController()
+            const result = requestTranslation(settings, input, fetch, upstream.signal)
+                .then(async (result) => {
+                    await db
+                        .put('translations', { key, result, createdAt: Date.now() })
+                        .catch(() => undefined)
+                    return result
+                })
+                .finally(() => {
+                    if (ongoingTranslations.get(key)?.controller === upstream) ongoingTranslations.delete(key)
+                })
+            ongoing = { controller: upstream, result, consumers: 0 }
+            ongoingTranslations.set(key, ongoing)
+        }
+        ongoing.consumers++
+        const abortListener = new AbortController()
+        const cancelled = new Promise<never>((_resolve, reject) => {
+            controller.signal.addEventListener('abort', () => reject(controller.signal.reason), {
+                once: true,
+                signal: abortListener.signal,
+            })
+        })
+        try {
+            return await Promise.race([ongoing.result, cancelled])
+        } finally {
+            abortListener.abort()
+            ongoing.consumers--
+            if (ongoing.consumers === 0 && ongoingTranslations.get(key) === ongoing) {
+                ongoingTranslations.delete(key)
+                ongoing.controller.abort()
+            }
+        }
+    } catch (error) {
+        if (controller.signal.aborted) throw new Error(t('translation.cancelled'), { cause: error })
+        if (error instanceof DOMException && ['TimeoutError', 'AbortError'].includes(error.name))
+            throw new Error(t('translation.timeout'), { cause: error })
+        if (error instanceof TypeError) throw new Error(t('translation.network'), { cause: error })
+        throw error
+    } finally {
+        controllers.delete(requestKey)
     }
 }

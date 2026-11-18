@@ -43,6 +43,8 @@ function makePdf(pages) {
 
 const pdf = makePdf(300)
 let translationRequests = 0
+const translationInputs = []
+const fixtureSentence = 'Hardware register learning vocabulary and embedded firmware documentation.'
 const server = createServer((request, response) => {
     if (request.url === '/v1/chat/completions') {
         translationRequests++
@@ -51,9 +53,29 @@ const server = createServer((request, response) => {
             data += chunk
         })
         request.on('end', () => {
-            assert.equal(JSON.parse(data).model, 'smoke-model')
-            response.setHeader('Content-Type', 'application/json')
-            response.end(JSON.stringify({ choices: [{ message: { content: '寄存器 · 测试语境释义' } }] }))
+            const payload = JSON.parse(data)
+            assert.equal(payload.model, 'smoke-model')
+            const input = JSON.parse(payload.messages[1].content)
+            translationInputs.push(input)
+            if (input.selectedText === 'package') {
+                response.writeHead(503).end()
+                return
+            }
+            const result = /\s/.test(input.selectedText)
+                ? { kind: 'text', text: '这是完整的选区译文\u3002' }
+                : {
+                      kind: 'meanings',
+                      meanings: [
+                          { text: '寄存器', partOfSpeech: '名词' },
+                          { text: '登记', partOfSpeech: '动词' },
+                      ],
+                  }
+            const respond = () => {
+                response.setHeader('Content-Type', 'application/json')
+                response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) } }] }))
+            }
+            if (input.selectedText === 'cacheprobe') setTimeout(respond, 400)
+            else respond()
         })
     } else if (request.url === '/sample.pdf') {
         response.setHeader('Content-Type', 'application/pdf')
@@ -63,8 +85,9 @@ const server = createServer((request, response) => {
         response.end(
             '<!doctype html><title>Long technical document</title>' +
                 '<header><span id="edge-word" style="position:fixed;bottom:26px;left:24px">package</span></header><main>' +
+                '<p>Hardware <em id="inline-register">register</em> learning vocabulary and embedded firmware documentation.</p>' +
                 '<p>Hardware register learning vocabulary and embedded firmware documentation.</p>'.repeat(
-                    2000,
+                    1999,
                 ) +
                 '</main>',
         )
@@ -99,14 +122,32 @@ try {
     const id = new URL(worker.url()).host
     const options = await context.newPage()
     await options.goto(`chrome-extension://${id}/options.html`)
+    await options.getByRole('button', { name: '使用 DeepSeek 预设' }).click()
+    assert.equal(
+        await options.getByPlaceholder('https://api.example.com/v1').inputValue(),
+        'https://api.deepseek.com',
+    )
+    assert.equal(await options.getByPlaceholder('填写服务支持的模型 ID').inputValue(), 'deepseek-flash')
     await options.getByPlaceholder('https://api.example.com/v1').fill(`${origin}/v1`)
     await options.getByPlaceholder('填写服务支持的模型 ID').fill('smoke-model')
     await options.getByRole('button', { name: '测试语境翻译' }).click()
-    await options.getByText('寄存器 · 测试语境释义', { exact: true }).waitFor()
+    await options.getByText('寄存器 / 登记', { exact: true }).waitFor()
     assert.equal(translationRequests, 1)
     await options.getByRole('button', { name: '测试语境翻译' }).click()
-    await options.getByText('寄存器 · 测试语境释义', { exact: true }).waitFor()
+    await options.getByText('寄存器 / 登记', { exact: true }).waitFor()
     assert.equal(translationRequests, 1, 'Identical translation should use the local cache')
+    const concurrent = await options.evaluate(async () => {
+        const translate = () =>
+            chrome.runtime.sendMessage({
+                channel: 'xgloss',
+                operation: 'translate',
+                input: { text: 'cacheprobe', context: 'Concurrent lookups.' },
+                requestId: crypto.randomUUID(),
+            })
+        return Promise.all([translate(), translate()])
+    })
+    assert.ok(concurrent.every((result) => result.ok))
+    assert.equal(translationInputs.filter(({ selectedText }) => selectedText === 'cacheprobe').length, 1)
 
     await worker.evaluate(() => chrome.storage.local.set({ 'spotlight:127.0.0.1': false }))
     const article = await context.newPage()
@@ -159,7 +200,27 @@ try {
 
     const recall = readingPanel.getByRole('button', { name: '回想模式', exact: true })
     const registerRow = readingPanel.locator('.candidate-item').filter({ hasText: 'register' })
-    await registerRow.locator('.candidate-meaning').waitFor()
+    const offscreen = await readingPanel
+        .locator('.candidate-list')
+        .evaluate((list) =>
+            [...list.querySelectorAll('[data-word]')]
+                .filter((row) => row.getBoundingClientRect().top > list.getBoundingClientRect().bottom)
+                .map((row) => row.dataset.word),
+        )
+    assert.ok(
+        !translationInputs.some(
+            ({ selectedText, context }) => context === fixtureSentence && offscreen.includes(selectedText),
+        ),
+    )
+    await registerRow.scrollIntoViewIfNeeded()
+    const preview = registerRow.locator('.candidate-meaning')
+    await preview.filter({ hasText: /^\s*寄存器\s*$/ }).waitFor()
+    assert.equal((await preview.textContent()).trim(), '寄存器')
+    const registerRequests = () =>
+        translationInputs.filter(
+            ({ selectedText, context }) => selectedText === 'register' && context === fixtureSentence,
+        ).length
+    assert.equal(registerRequests(), 1)
     await recall.click()
     await readingPanel.getByRole('button', { name: '回想模式', pressed: true }).waitFor()
     assert.equal(await readingPanel.locator('.candidate-meaning').count(), 0)
@@ -169,23 +230,43 @@ try {
     assert.equal(await article.locator('.word-card').count(), 0)
 
     await article.getByRole('button', { name: 'register ×2000' }).click()
-    await article.waitForFunction(() =>
-        /[\u4e00-\u9fff]/.test(
-            document.querySelector('#xgloss-root')?.shadowRoot?.querySelector('.definition')?.textContent ??
-                '',
-        ),
-    )
     const card = article.locator('.word-card')
+    await card.locator('.meaning-option').last().waitFor()
+    assert.deepEqual(await card.locator('.meaning-option > span').allTextContents(), ['寄存器', '登记'])
+    assert.equal(registerRequests(), 1, 'The panel and card share the same context cache')
+    const preferredMeaning = card.getByRole('button', { name: '寄存器', exact: true })
+    const contextMatch = card.locator('.context-match[title="语境首选"]')
+    await contextMatch.waitFor()
+    assert.equal(await preferredMeaning.getAttribute('aria-pressed'), 'true')
+    assert.equal(
+        await preferredMeaning.getAttribute('aria-describedby'),
+        await contextMatch.getAttribute('id'),
+    )
+    assert.equal(await card.getByText('名词', { exact: true }).count(), 0)
     await card.getByRole('button', { name: 'Spotlight 正文高亮', pressed: false }).click()
     await readingPanel.getByRole('button', { name: 'Spotlight 正文高亮', pressed: true }).waitFor()
     await article.waitForFunction(() => (CSS.highlights.get('xgloss-unknown')?.size ?? 0) > 0)
-    await card.getByRole('button', { name: '学习 2 级 · register', exact: true }).click()
-    await card.getByText('已保存 · 学习 2 级', { exact: true }).waitFor()
+    await card.getByRole('button', { name: '登记', exact: true }).click()
+    await card.getByRole('button', { name: '登记', exact: true, pressed: true }).waitFor()
+    assert.equal(await preferredMeaning.getAttribute('aria-pressed'), 'false')
+    assert.equal(
+        await preferredMeaning.getAttribute('aria-describedby'),
+        await contextMatch.getAttribute('id'),
+    )
+    await card.getByRole('button', { name: '学习 2 级 - register', exact: true }).click()
+    await card.getByText('已保存 - 学习 2 级', { exact: true }).waitFor()
     await article.waitForFunction(() => (CSS.highlights.get('xgloss-learning-2')?.size ?? 0) > 0)
+    const requestsBeforeMode = registerRequests()
     await card.getByRole('button', { name: '详细释义', exact: true }).click()
     await card.locator('blockquote').waitFor()
+    await card.getByText('名词', { exact: true }).waitFor()
     await card.getByRole('button', { name: '简洁释义', exact: true }).click()
+    assert.equal(registerRequests(), requestsBeforeMode)
     await article.locator('.word-card').screenshot({ path: resolve(directory, 'word-card.png') })
+    await article.keyboard.press('Escape')
+    await article.getByRole('button', { name: 'register ×2000' }).click()
+    await card.getByRole('button', { name: '登记', exact: true, pressed: true }).waitFor()
+    assert.equal(registerRequests(), 1)
     await article.keyboard.press('Escape')
     await recall.click()
     await readingPanel.getByRole('button', { name: '回想模式', pressed: false }).waitFor()
@@ -193,16 +274,16 @@ try {
     const row = readingPanel
         .locator('.candidate-item')
         .filter({ has: article.getByRole('button', { name: 'register ×2000' }) })
-    const firstLevel = row.getByRole('button', { name: '学习 1 级 · register' })
-    const secondLevel = row.getByRole('button', { name: '学习 2 级 · register' })
+    const firstLevel = row.getByRole('button', { name: '学习 1 级 - register' })
+    const secondLevel = row.getByRole('button', { name: '学习 2 级 - register' })
     await firstLevel.scrollIntoViewIfNeeded()
     const currentScroll = await readingPanel
         .locator('.candidate-list')
         .evaluate((element) => element.scrollTop)
     await firstLevel.click()
-    await row.locator('button[aria-pressed="true"][aria-label="学习 1 级 · register"]').waitFor()
+    await row.locator('button[aria-pressed="true"][aria-label="学习 1 级 - register"]').waitFor()
     await secondLevel.click()
-    await row.locator('button[aria-pressed="true"][aria-label="学习 2 级 · register"]').waitFor()
+    await row.locator('button[aria-pressed="true"][aria-label="学习 2 级 - register"]').waitFor()
     assert.equal(
         await readingPanel.locator('.candidate-list').evaluate((element) => element.scrollTop),
         currentScroll,
@@ -229,13 +310,14 @@ try {
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
     })
     await card.getByRole('button', { name: /^更多 \d+ 项$/ }).waitFor()
+    await card.getByRole('alert').filter({ hasText: 'HTTP 503' }).waitFor()
     await article.waitForFunction(() => {
         const edge = document.querySelector('#edge-word')?.getBoundingClientRect()
         const popup = document
             .querySelector('#xgloss-root')
             ?.shadowRoot?.querySelector('.floating-card')
             ?.getBoundingClientRect()
-        return edge && popup && popup.bottom < edge.top && popup.left >= 9 && popup.height <= 170
+        return edge && popup && popup.bottom < edge.top && popup.left >= 9 && popup.height <= 195
     })
     await card.getByRole('button', { name: /^更多 \d+ 项$/ }).click()
     await card.getByRole('button', { name: '收起义项' }).waitFor()
@@ -251,6 +333,24 @@ try {
     await article.mouse.click(380, 100)
     await card.waitFor({ state: 'detached' })
     await article.setViewportSize({ width: 1440, height: 1000 })
+    await article.locator('#inline-register').evaluate((element) => {
+        const text = element.parentElement.lastChild
+        const range = document.createRange()
+        range.setStart(element.parentElement.firstChild, 0)
+        range.setEnd(text, text.length)
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
+    })
+    await card.getByText('这是完整的选区译文.', { exact: true }).waitFor()
+    assert.equal(await card.locator('.word-rating-controls').count(), 0)
+    assert.ok(
+        translationInputs.some(
+            ({ selectedText, context }) => selectedText === fixtureSentence && context === fixtureSentence,
+        ),
+    )
+    await article.keyboard.press('Escape')
     await badge.click()
     await article.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
     const ranges = await article.evaluate(() =>
@@ -336,13 +436,18 @@ try {
     const library = await context.newPage()
     await library.goto(`chrome-extension://${id}/library.html`)
     await library.getByRole('link', { name: '打开收藏集' }).click()
-    await library.getByRole('combobox', { name: 'register · 学习 2 级' }).selectOption('level-3')
-    await library.getByRole('combobox', { name: 'register · 学习 3 级' }).waitFor()
+    await library
+        .locator('.collection-meaning')
+        .filter({ hasText: /^\s*登记\s*$/ })
+        .waitFor()
+    await library.getByRole('combobox', { name: 'register - 学习 2 级' }).selectOption('level-3')
+    await library.getByRole('combobox', { name: 'register - 学习 3 级' }).waitFor()
     await library.getByRole('button', { name: 'register', exact: true }).click()
     await library.getByRole('heading', { name: '遇词记录' }).waitFor()
+    await library.locator('.encounter-list').getByText('登记', { exact: true }).waitFor()
     await library.getByRole('button', { name: '关闭词卡' }).click()
     await library.reload()
-    await library.getByRole('combobox', { name: 'register · 学习 3 级' }).waitFor()
+    await library.getByRole('combobox', { name: 'register - 学习 3 级' }).waitFor()
     await library.screenshot({ path: resolve(directory, 'library.png'), fullPage: true })
     await options.screenshot({ path: resolve(directory, 'settings.png'), fullPage: true })
     await library.getByRole('link', { name: '复习训练', exact: true }).click()
@@ -367,7 +472,7 @@ try {
     await library.getByRole('button', { name: '返回复习列表', exact: true }).click()
     await library
         .locator('.review-mode')
-        .filter({ has: library.getByRole('heading', { name: '词义 → 单词', exact: true }) })
+        .filter({ has: library.getByRole('heading', { name: '词义 -> 单词', exact: true }) })
         .getByRole('button', { name: '开始', exact: true })
         .click()
     await library.getByPlaceholder('输入英文单词').fill('register')
@@ -377,14 +482,14 @@ try {
     await library.getByRole('heading', { name: '本轮复习完成', exact: true }).waitFor()
     await library.getByRole('link', { name: '学习统计', exact: true }).click()
     await library.getByRole('heading', { name: '学习活动日历', exact: true }).waitFor()
-    await library.getByText('调整等级 · 学习 3 级', { exact: true }).waitFor()
-    await library.getByText('完成复习 · 学习 3 级', { exact: true }).first().waitFor()
+    await library.getByText('调整等级 - 学习 3 级', { exact: true }).waitFor()
+    await library.getByText('完成复习 - 学习 3 级', { exact: true }).first().waitFor()
     assert.equal(
         await library.locator('.heatmap-cell[aria-pressed="true"]').getAttribute('data-intensity'),
         '1',
     )
     await library.locator('.heatmap-cell[aria-pressed="true"]').press('ArrowUp')
-    await library.getByText('当天没有学习记录。', { exact: true }).waitFor()
+    await library.getByText('当天没有学习记录.', { exact: true }).waitFor()
     await library.screenshot({ path: resolve(directory, 'statistics.png'), fullPage: true })
     await library.setViewportSize({ width: 390, height: 844 })
     await library.waitForFunction(() => {
@@ -443,8 +548,8 @@ try {
     await readingPanel.getByRole('button', { name: 'Spotlight 正文高亮', pressed: true }).waitFor()
     await otherSite.getByRole('button', { name: 'Spotlight 正文高亮', pressed: true }).waitFor()
     await otherSite.close()
-    await reader.locator('.word-card').getByRole('button', { name: '学习 4 级 · register' }).click()
-    await reader.getByText('已保存 · 学习 4 级', { exact: true }).waitFor()
+    await reader.locator('.word-card').getByRole('button', { name: '学习 4 级 - register' }).click()
+    await reader.getByText('已保存 - 学习 4 级', { exact: true }).waitFor()
     assert.ok(
         await reader.evaluate(async () => {
             const result = await chrome.runtime.sendMessage({
@@ -456,6 +561,20 @@ try {
             return result.value.some((item) => item.page === 2 && item.context.includes('page 2'))
         }),
         'Selecting a word in the right page must save page 2 and its context',
+    )
+    await reader.getByRole('button', { name: '关闭词卡' }).click()
+    await rightText.evaluate((span) => {
+        const range = document.createRange()
+        range.selectNodeContents(span)
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        span.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    await reader.locator('.word-card').getByText('这是完整的选区译文.', { exact: true }).waitFor()
+    assert.equal(await reader.locator('.word-card .word-rating-controls').count(), 0)
+    assert.ok(
+        translationInputs.some(({ selectedText }) => /^Hardware register .* page 2$/.test(selectedText)),
     )
     await reader.getByRole('button', { name: '关闭词卡' }).click()
     await reader.locator('.pdf-scroll').evaluate((scroll) => {
@@ -510,7 +629,7 @@ try {
     await reader.getByRole('button', { name: '第 3 页', exact: true }).click()
     await reader.waitForFunction(() => document.querySelector('input[aria-label="页码"]')?.value === '3')
     await reader.getByRole('button', { name: '移除本页书签' }).click()
-    await reader.getByText('使用工具栏为当前页添加书签。', { exact: true }).waitFor()
+    await reader.getByText('使用工具栏为当前页添加书签.', { exact: true }).waitFor()
     await reader.getByPlaceholder('在线 PDF 链接').fill(origin + '/sample.pdf')
     await reader.getByRole('button', { name: '打开链接', exact: true }).click()
     await reader.waitForFunction(

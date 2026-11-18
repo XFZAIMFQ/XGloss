@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../../i18n'
 import { onMounted, reactive, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import {
@@ -7,7 +8,7 @@ import {
     errorMessage,
     type DefinitionMode,
 } from '../../domain/models'
-import { completionEndpoint } from '../../services/openai-translation'
+import { completionEndpoint, deepSeekPreset } from '../../services/openai-translation'
 import { request } from '../../platform/messages'
 import AppShell from '../../components/AppShell.vue'
 import { SlidersHorizontal } from '@lucide/vue'
@@ -39,7 +40,7 @@ async function updateDefinitionMode(event: Event) {
         const mode = definitionModeSchema.parse(select.value)
         await request('saveDefinitionMode', mode)
         definitionMode.value = mode
-        modeStatus.value = '词卡显示偏好已保存'
+        modeStatus.value = t('settings.modeSaved')
     } catch (reason) {
         select.value = definitionMode.value
         error.value = errorMessage(reason)
@@ -52,25 +53,35 @@ async function save() {
     status.value = ''
     try {
         const endpoint = completionEndpoint(settings.baseUrl)
-        if (!settings.model.trim()) throw new Error('请填写模型名称')
+        if (!settings.model.trim()) throw new Error(t('settings.modelRequired'))
         const allowed = await browser.permissions.request({ origins: [`${endpoint.origin}/*`] })
-        if (!allowed) throw new Error('需要服务来源权限才能发送翻译请求')
+        if (!allowed) throw new Error(t('settings.permissionRequired'))
         await request('saveSettings', { ...settings })
-        status.value = '配置已保存在本机'
+        status.value = t('settings.saved')
         return true
     } catch (reason) {
         error.value = errorMessage(reason)
         return false
     }
 }
+function useDeepSeek() {
+    try {
+        if (completionEndpoint(settings.baseUrl).origin !== deepSeekPreset.baseUrl) settings.apiKey = ''
+    } catch {
+        settings.apiKey = ''
+    }
+    Object.assign(settings, deepSeekPreset)
+}
 async function test() {
     if (!(await save())) return
     busy.value = true
     try {
-        status.value = await request('translate', {
+        const result = await request('translate', {
             text: 'register',
             context: 'Write the value to the hardware register.',
         })
+        status.value =
+            result.kind === 'meanings' ? result.meanings.map(({ text }) => text).join(' / ') : result.text
     } catch (reason) {
         error.value = errorMessage(reason)
     } finally {
@@ -82,49 +93,52 @@ async function test() {
     <AppShell active="settings">
         <header class="page-heading">
             <div>
-                <h1>翻译设置</h1>
-                <p class="muted">连接你偏好的翻译来源</p>
+                <h1>{{ t('common.settings') }}</h1>
+                <p class="muted">{{ t('settings.intro') }}</p>
             </div>
         </header>
-        <p v-if="!ready" role="status">正在读取配置…</p>
+        <p v-if="!ready" role="status">{{ t('settings.loading') }}</p>
         <form v-else class="panel settings-panel" @submit.prevent="save">
             <div class="settings-section-heading">
                 <span class="settings-icon"><SlidersHorizontal :size="24" /></span>
                 <div>
-                    <h2>OpenAI-compatible API</h2>
-                    <p class="muted small">支持云端服务与本机模型</p>
+                    <h2>{{ t('settings.apiHeading') }}</h2>
+                    <p class="muted small">{{ t('settings.compatible') }}</p>
                 </div>
             </div>
+            <div class="row">
+                <button type="button" @click="useDeepSeek">{{ t('settings.deepSeekPreset') }}</button>
+            </div>
             <label class="field">
-                <span>Base URL</span>
+                <span>{{ t('settings.baseUrl') }}</span>
                 <input v-model="settings.baseUrl" placeholder="https://api.example.com/v1" required />
                 <small class="muted">
-                    填写 API 根路径，程序自动追加 /chat/completions。本机服务可使用 http://localhost。
+                    {{ t('settings.baseUrlHelp') }}
                 </small>
             </label>
             <label class="field">
-                <span>API Key</span>
+                <span>{{ t('settings.apiKey') }}</span>
                 <input
                     v-model="settings.apiKey"
                     type="password"
                     autocomplete="off"
-                    placeholder="本机服务可留空"
+                    :placeholder="t('settings.keyPlaceholder')"
                 />
                 <small class="muted">
-                    保存在本机扩展存储。在线查询时，选中文字及语境将发送到所配置的服务。
+                    {{ t('settings.keyHelp') }}
                 </small>
             </label>
             <label class="field">
-                <span>模型名称</span>
-                <input v-model="settings.model" placeholder="填写服务支持的模型 ID" required />
+                <span>{{ t('settings.model') }}</span>
+                <input v-model="settings.model" :placeholder="t('settings.modelPlaceholder')" required />
             </label>
             <div class="row">
                 <label class="field">
-                    <span>目标语言</span>
+                    <span>{{ t('settings.targetLanguage') }}</span>
                     <input v-model="settings.targetLanguage" required />
                 </label>
                 <label class="field">
-                    <span>超时（毫秒）</span>
+                    <span>{{ t('settings.timeout') }}</span>
                     <input
                         v-model.number="settings.timeoutMs"
                         type="number"
@@ -135,21 +149,21 @@ async function test() {
                 </label>
             </div>
             <div class="row">
-                <button class="primary" type="submit">保存并授权</button>
+                <button class="primary" type="submit">{{ t('settings.save') }}</button>
                 <button type="button" :disabled="busy" @click="test">
-                    {{ busy ? '连接中…' : '测试语境翻译' }}
+                    {{ busy ? t('settings.testing') : t('settings.test') }}
                 </button>
             </div>
             <p v-if="status" role="status" class="success definition">{{ status }}</p>
             <p v-if="error" role="alert" class="error">{{ error }}</p>
         </form>
         <section v-if="ready" class="panel settings-panel">
-            <h2>词卡显示</h2>
+            <h2>{{ t('settings.cardDisplay') }}</h2>
             <label class="field">
-                <span>默认释义</span>
+                <span>{{ t('settings.defaultMode') }}</span>
                 <select :value="definitionMode" :disabled="savingMode" @change="updateDefinitionMode">
-                    <option value="simple">简洁</option>
-                    <option value="detailed">详细（词性、音标和原句）</option>
+                    <option value="simple">{{ t('settings.simple') }}</option>
+                    <option value="detailed">{{ t('settings.detailed') }}</option>
                 </select>
             </label>
             <p v-if="modeStatus" class="success" role="status">{{ modeStatus }}</p>

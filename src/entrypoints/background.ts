@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
 import { handleMessage } from '../services/background-handler'
@@ -9,13 +10,13 @@ export default defineBackground(() => {
         void storageReady
             .then(() => handleMessage(message, sender))
             .then(respond)
-            .catch(() => respond({ ok: false, error: '配置存储初始化失败' }))
+            .catch(() => respond({ ok: false, error: t('background.storageFailure') }))
         return true
     })
     browser.runtime.onInstalled.addListener(() => {
         browser.contextMenus.create({
             id: 'xgloss-reader',
-            title: '用 XGloss 打开 PDF',
+            title: t('background.openPdf'),
             contexts: ['link'],
             targetUrlPatterns: ['*://*/*.pdf', '*://*/*.pdf?*'],
         })

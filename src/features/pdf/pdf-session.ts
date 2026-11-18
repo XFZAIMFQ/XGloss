@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import {
     AnnotationEditorType,
     AnnotationMode,
@@ -93,8 +94,10 @@ export class PdfSession {
         })
         this.loading = loading
         loading.onPassword = (update: (password: string | Error) => void, reason: number) => {
-            const password = window.prompt(reason === 2 ? '密码不正确，请重新输入' : '请输入 PDF 密码')
-            if (password === null) update(new Error('已取消输入 PDF 密码'))
+            const password = window.prompt(
+                reason === 2 ? t('pdf.incorrectPassword') : t('pdf.promptPassword'),
+            )
+            if (password === null) update(new Error(t('pdf.cancelledPassword')))
             else update(password)
         }
         const document = await loading.promise
@@ -105,7 +108,7 @@ export class PdfSession {
 
     async show(page: number, scale: string, layout: PdfLayout): Promise<void> {
         const document = this.document
-        if (!document) throw new Error('请先打开 PDF')
+        if (!document) throw new Error(t('pdf.missingDocument'))
         const controller = this.documentController
         const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
         const initialized = new Promise<void>((resolve, reject) => {

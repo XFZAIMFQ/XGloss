@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../../i18n'
 import { onMounted, ref } from 'vue'
 import { browser } from 'wxt/browser'
 import { errorMessage } from '../../domain/models'
@@ -40,7 +41,7 @@ onMounted(async () => {
             await ensureAttached(tab.id)
         }
     } catch (reason) {
-        error.value = errorMessage(reason) + '。请检查扩展的站点访问权限。'
+        error.value = t('popup.sitePermission', { error: errorMessage(reason) })
     } finally {
         updating.value = false
     }
@@ -56,7 +57,7 @@ async function toggleAnalysis() {
         current.enabled = enabled
         if (enabled) await ensureAttached(current.tabId)
     } catch (reason) {
-        error.value = errorMessage(reason) + '。请检查扩展的站点访问权限。'
+        error.value = t('popup.sitePermission', { error: errorMessage(reason) })
     } finally {
         updating.value = false
     }
@@ -79,11 +80,11 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
                 <span>X.</span>
                 Gloss
             </a>
-            <button class="icon-button" aria-label="翻译设置" @click="open('/options.html')">
+            <button class="icon-button" :aria-label="t('common.settings')" @click="open('/options.html')">
                 <Settings2 :size="20" />
             </button>
         </div>
-        <p class="popup-caption">把正在阅读的单词，变成自己的词汇。</p>
+        <p class="popup-caption">{{ t('popup.caption') }}</p>
         <button
             v-if="siteReading"
             class="popup-enable"
@@ -94,25 +95,25 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
         >
             <ScanText :size="19" />
             <span class="site-label">
-                分析此网站
+                {{ t('popup.analyzeSite') }}
                 <small>{{ siteReading.site }}</small>
             </span>
-            <span>{{ siteReading.enabled ? '开启' : '停用' }}</span>
+            <span>{{ siteReading.enabled ? t('popup.enabled') : t('popup.disabled') }}</span>
         </button>
         <div class="popup-links">
             <button @click="open('/library.html')">
                 <BookOpen :size="20" />
                 <span>
-                    我的词库
-                    <small>{{ wordCount }} 个词条</small>
+                    {{ t('common.library') }}
+                    <small>{{ t('common.wordCount', { count: wordCount }) }}</small>
                 </span>
                 <ArrowUpRight :size="16" />
             </button>
             <button @click="open('/reader.html')">
                 <FileText :size="20" />
                 <span>
-                    {{ currentPdf ? '用 XGloss 打开当前 PDF' : 'PDF 阅读器' }}
-                    <small>{{ currentPdf ? '在阅读器中查词和标记' : '打开文档，边读边积累' }}</small>
+                    {{ currentPdf ? t('popup.openCurrentPdf') : t('common.pdf') }}
+                    <small>{{ currentPdf ? t('popup.currentPdfHelp') : t('popup.pdfHelp') }}</small>
                 </span>
                 <ArrowUpRight :size="16" />
             </button>
@@ -120,7 +121,7 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
         <p v-if="error" class="error small" role="alert">{{ error }}</p>
         <footer>
             <HardDrive :size="13" />
-            本地保存 · 按需翻译
+            {{ t('popup.footer') }}
         </footer>
     </main>
 </template>

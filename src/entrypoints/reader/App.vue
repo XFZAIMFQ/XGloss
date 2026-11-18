@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { t } from '../../i18n'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { browser } from 'wxt/browser'
 import { PdfSession, type PdfOutlineEntry } from '../../features/pdf/pdf-session'
-import { contextAround, normalizeWord } from '../../domain/vocabulary'
+import { normalizeWord } from '../../domain/vocabulary'
 import { selectionAnchor } from '../../features/reading/selection-anchor'
+import { selectionContext } from '../../features/reading/selection-context'
 import { useSpotlight } from '../../features/reading/use-spotlight'
 import {
     errorMessage,
@@ -24,11 +26,11 @@ const pageCount = ref(0)
 const scale = ref('page-fit')
 const spread = ref(false)
 const continuous = ref(true)
-const title = ref('PDF 阅读器')
+const title = ref(t('common.pdf'))
 const documentId = ref('')
 const sourceUrl = ref('')
 const url = ref(new URLSearchParams(location.search).get('url') ?? '')
-const status = ref('打开文档后按页分析词汇')
+const status = ref(t('pdf.initialStatus'))
 const error = ref('')
 const loading = ref(false)
 const ready = ref(false)
@@ -111,7 +113,7 @@ async function open(data: Uint8Array, name: string, source: string) {
     outlineError.value = ''
     bookmarks.value = []
     bookmarkSaving.value = false
-    status.value = '准备分析文档词汇…'
+    status.value = t('pdf.preparing')
     try {
         const document = await reader.open(data)
         if (current !== opening) return
@@ -143,12 +145,11 @@ async function open(data: Uint8Array, name: string, source: string) {
                 if (current !== opening) return
                 counts.value = nextCounts
                 status.value = limited
-                    ? `已分析 ${analyzed} 页 · 达到文本预算`
+                    ? t('pdf.budget', { pages: analyzed })
                     : analyzed < pageCount.value
-                      ? `正在分析 ${analyzed} / ${pageCount.value} 页…`
+                      ? t('pdf.analyzing', { current: analyzed, total: pageCount.value })
                       : ''
-                if (!nextCounts.size && analyzed === pageCount.value)
-                    status.value = '未提取到文字，扫描文档需要 OCR'
+                if (!nextCounts.size && analyzed === pageCount.value) status.value = t('pdf.ocr')
             })
             .catch((reason: unknown) => {
                 if (current === opening) error.value = errorMessage(reason)
@@ -187,17 +188,17 @@ async function openUrl(authorized = false) {
     networkController = controller
     try {
         const parsed = new URL(url.value)
-        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('请输入 HTTP 或 HTTPS PDF 链接')
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(t('pdf.invalidLink'))
         if (!authorized && !(await browser.permissions.request({ origins: [`${parsed.origin}/*`] })))
-            throw new Error('需要 PDF 来源权限')
+            throw new Error(t('pdf.permissionRequired'))
         const response = await fetch(parsed, {
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]),
             credentials: 'omit',
         })
-        if (!response.ok) throw new Error(`PDF 下载失败，HTTP ${response.status}。可下载文件后本地打开。`)
+        if (!response.ok) throw new Error(t('pdf.downloadError', { status: response.status }))
         const data = new Uint8Array(await response.arrayBuffer())
         if (controller.signal.aborted) return
-        const pathName = parsed.pathname.split('/').pop() || '在线 PDF'
+        const pathName = parsed.pathname.split('/').pop() || t('pdf.onlinePdf')
         let file = pathName
         try {
             file = decodeURIComponent(pathName)
@@ -274,7 +275,7 @@ async function sourceForWord(
         page: number,
         documentId: documentId.value,
     }
-    const context = await session?.contextForWord(word, number)
+    const context = fallback.length > word.length ? fallback : await session?.contextForWord(word, number)
     return { ...source, context: (context || fallback).slice(0, 3000) }
 }
 
@@ -295,14 +296,15 @@ function selection() {
     const selection = window.getSelection()
     const text = selection?.toString().trim()
     if (!selection?.rangeCount || !text || text.length > 2000) return
-    const node = selection.getRangeAt(0).startContainer
+    const range = selection.getRangeAt(0)
+    const node = range.startContainer
     const element = node instanceof Element ? node : node.parentElement
     const layer = element?.closest('.textLayer')
     const sourcePage = layer?.closest<HTMLElement>('[data-page-number]')
     if (!sourcePage || !pages.value?.contains(sourcePage)) return
     const number = Number(sourcePage.dataset.pageNumber)
     if (!Number.isInteger(number) || number < 1 || number > pageCount.value) return
-    void select(text, selectionAnchor(selection), number, contextAround(element?.textContent ?? '', text))
+    void select(text, selectionAnchor(selection), number, selectionContext(range, text, layer, ' '))
 }
 
 function turn(next: number | string) {
@@ -363,19 +365,28 @@ onBeforeUnmount(() => {
         <header class="reader-toolbar">
             <a class="brand" href="library.html">XGloss</a>
             <label class="file-button">
-                打开本地 PDF
+                {{ t('pdf.openFile') }}
                 <input type="file" accept="application/pdf,.pdf" :disabled="loading" @change="fileChanged" />
             </label>
-            <input v-model="url" placeholder="在线 PDF 链接" class="url-input" @keydown.enter="openUrl()" />
-            <button :disabled="loading" @click="openUrl()">{{ loading ? '正在打开…' : '打开链接' }}</button>
-            <a href="options.html">翻译设置</a>
+            <input
+                v-model="url"
+                :placeholder="t('pdf.urlPlaceholder')"
+                class="url-input"
+                @keydown.enter="openUrl()"
+            />
+            <button :disabled="loading" @click="openUrl()">
+                {{ loading ? t('pdf.opening') : t('pdf.openLink') }}
+            </button>
+            <a href="options.html">{{ t('common.settings') }}</a>
         </header>
         <div v-if="pageCount" class="page-toolbar">
             <span class="document-title" :title="title">{{ title }}</span>
-            <button :disabled="!ready || page === 1" @click="session?.step(-1)">上一页</button>
+            <button :disabled="!ready || page === 1" @click="session?.step(-1)">
+                {{ t('common.previousPage') }}
+            </button>
             <input
                 v-model.number="pageInput"
-                aria-label="页码"
+                :aria-label="t('pdf.page')"
                 type="number"
                 min="1"
                 :max="pageCount"
@@ -383,64 +394,78 @@ onBeforeUnmount(() => {
                 @keydown.enter="turn(pageInput)"
             />
             <span>/ {{ pageCount }}</span>
-            <button :disabled="!ready || page === pageCount" @click="session?.step(1)">下一页</button>
-            <select v-model="scale" aria-label="缩放" :disabled="!ready" @change="session?.setScale(scale)">
-                <option value="page-fit">适合页面</option>
-                <option value="page-width">适合宽度</option>
+            <button :disabled="!ready || page === pageCount" @click="session?.step(1)">
+                {{ t('common.nextPage') }}
+            </button>
+            <select
+                v-model="scale"
+                :aria-label="t('pdf.zoom')"
+                :disabled="!ready"
+                @change="session?.setScale(scale)"
+            >
+                <option value="page-fit">{{ t('pdf.fitPage') }}</option>
+                <option value="page-width">{{ t('pdf.fitWidth') }}</option>
                 <option value="0.75">75%</option>
                 <option value="1">100%</option>
                 <option value="1.25">125%</option>
                 <option value="1.5">150%</option>
                 <option value="2">200%</option>
             </select>
-            <select v-model="spread" aria-label="页面布局" :disabled="!ready" @change="changeLayout">
-                <option :value="false">单页</option>
-                <option :value="true">双页</option>
+            <select v-model="spread" :aria-label="t('pdf.layout')" :disabled="!ready" @change="changeLayout">
+                <option :value="false">{{ t('pdf.singlePage') }}</option>
+                <option :value="true">{{ t('pdf.twoPages') }}</option>
             </select>
-            <select v-model="continuous" aria-label="滚动方式" :disabled="!ready" @change="changeLayout">
-                <option :value="true">连续滚动</option>
-                <option :value="false">分页阅读</option>
+            <select
+                v-model="continuous"
+                :aria-label="t('pdf.scroll')"
+                :disabled="!ready"
+                @change="changeLayout"
+            >
+                <option :value="true">{{ t('pdf.continuous') }}</option>
+                <option :value="false">{{ t('pdf.paginated') }}</option>
             </select>
-            <button :disabled="!ready" @click="session?.rotate()">旋转</button>
+            <button :disabled="!ready" @click="session?.rotate()">{{ t('pdf.rotate') }}</button>
             <button
                 :disabled="!ready"
                 :aria-pressed="sidebar === 'outline'"
                 @click="toggleSidebar('outline')"
             >
-                目录
+                {{ t('pdf.outline') }}
             </button>
             <button
                 :disabled="!ready"
                 :aria-pressed="sidebar === 'bookmarks'"
                 @click="toggleSidebar('bookmarks')"
             >
-                书签
+                {{ t('pdf.bookmarks') }}
             </button>
             <button :disabled="!ready || bookmarkSaving" @click="toggleBookmark">
-                {{ bookmarked ? '移除本页书签' : '添加本页书签' }}
+                {{ bookmarked ? t('pdf.removeBookmark') : t('pdf.addBookmark') }}
             </button>
-            <button :aria-pressed="panelVisible" @click="panelVisible = !panelVisible">词汇面板</button>
+            <button :aria-pressed="panelVisible" @click="panelVisible = !panelVisible">
+                {{ t('pdf.vocabularyPanel') }}
+            </button>
         </div>
         <p v-if="error" class="reader-error error" role="alert">{{ error }}</p>
         <div v-if="!pageCount" class="reader-welcome">
-            <h1>让技术文档成为你的词汇来源</h1>
-            <p class="muted">打开 PDF，选中陌生单词，收藏原句。词汇状态与网页共享。</p>
-            <p class="muted small">支持带文字层的 PDF。本地文件在电脑上解析。</p>
+            <h1>{{ t('pdf.emptyTitle') }}</h1>
+            <p class="muted">{{ t('pdf.emptyHint') }}</p>
+            <p class="muted small">{{ t('pdf.textLayerHint') }}</p>
         </div>
         <div v-show="pageCount" class="reader-body">
             <aside
                 v-if="sidebar"
                 class="reader-sidebar"
-                :aria-label="sidebar === 'outline' ? '文档目录' : '我的书签'"
+                :aria-label="sidebar === 'outline' ? t('pdf.documentOutline') : t('pdf.myBookmarks')"
             >
                 <template v-if="sidebar === 'outline'">
-                    <h2>文档目录</h2>
-                    <p v-if="outlineLoading" role="status">正在读取目录…</p>
+                    <h2>{{ t('pdf.documentOutline') }}</h2>
+                    <p v-if="outlineLoading" role="status">{{ t('pdf.loadingOutline') }}</p>
                     <p v-else-if="outlineError" role="alert">
                         {{ outlineError }}
-                        <button @click="loadOutline">重试</button>
+                        <button @click="loadOutline">{{ t('common.retry') }}</button>
                     </p>
-                    <p v-else-if="!outline?.length">这个 PDF 没有内置目录。</p>
+                    <p v-else-if="!outline?.length">{{ t('pdf.emptyOutline') }}</p>
                     <ul v-else class="pdf-navigation">
                         <li
                             v-for="(entry, index) in outline"
@@ -455,8 +480,8 @@ onBeforeUnmount(() => {
                     </ul>
                 </template>
                 <template v-else>
-                    <h2>我的书签</h2>
-                    <p v-if="!bookmarks.length">使用工具栏为当前页添加书签。</p>
+                    <h2>{{ t('pdf.myBookmarks') }}</h2>
+                    <p v-if="!bookmarks.length">{{ t('pdf.bookmarkHint') }}</p>
                     <ul v-else class="pdf-navigation">
                         <li v-for="bookmark in bookmarks" :key="bookmark.page">
                             <button
@@ -464,7 +489,7 @@ onBeforeUnmount(() => {
                                 :aria-current="page === bookmark.page ? 'page' : undefined"
                                 @click="turn(bookmark.page)"
                             >
-                                第 {{ bookmark.page }} 页
+                                {{ t('pdf.bookmarkPage', { page: bookmark.page }) }}
                             </button>
                         </li>
                     </ul>
@@ -474,7 +499,7 @@ onBeforeUnmount(() => {
                 <div
                     ref="container"
                     class="pdf-scroll"
-                    aria-label="PDF 文档"
+                    :aria-label="t('pdf.document')"
                     tabindex="0"
                     @mouseup="selection"
                     @keyup.shift="selection"
@@ -486,6 +511,7 @@ onBeforeUnmount(() => {
         <div v-if="ready" v-show="panelVisible" class="floating">
             <ReadingPanel
                 :source-id="documentId"
+                :active="panelVisible"
                 :source-for-word="sourceForWord"
                 :words="words"
                 :counts="counts"

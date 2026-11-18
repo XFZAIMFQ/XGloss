@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../../i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WordCard from '../../components/WordCard.vue'
 import AppShell from '../../components/AppShell.vue'
@@ -84,10 +85,13 @@ watch([rows, inCollection], async ([items, open], _previous, onCleanup) => {
 function ratingValue(word: Word) {
     return word.state === 'learning' ? `level-${word.level ?? 1}` : word.state
 }
-function meaningFor(key: string) {
-    return dictionaryMeanings(details.value.get(key)?.entry ?? null, 'simple')
-        .slice(0, 3)
-        .join(' · ')
+function meaningFor(word: Word) {
+    return (
+        word.meaning ??
+        dictionaryMeanings(details.value.get(word.key)?.entry ?? null, 'simple')
+            .slice(0, 3)
+            .join(' / ')
+    )
 }
 let unsubscribe: (() => void) | undefined
 async function refresh() {
@@ -151,11 +155,11 @@ function csv() {
     const escape = (text: string) =>
         '"' + (/^[=+@-]/.test(text) ? "'" + text : text).replaceAll('"', '""') + '"'
     download(
-        '\uFEFFword,state,level\r\n' +
+        '\uFEFFword,state,level,meaning\r\n' +
             words.value
                 .map(
                     (word) =>
-                        `${escape(word.text)},${word.state},${word.state === 'learning' ? (word.level ?? 1) : ''}`,
+                        `${escape(word.text)},${word.state},${word.state === 'learning' ? (word.level ?? 1) : ''},${escape(word.meaning ?? '')}`,
                 )
                 .join('\r\n'),
         'text/csv;charset=utf-8',
@@ -166,13 +170,13 @@ async function restore(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0]
     if (!file) return
     try {
-        if (file.size > 50_000_000) throw new Error('备份文件超过 50 MB')
+        if (file.size > 50_000_000) throw new Error(t('library.backupTooLarge'))
         const text = await file.text()
         const count = await request(
             'import',
             file.name.toLowerCase().endsWith('.csv') ? parseWordCsv(text) : JSON.parse(text),
         )
-        status.value = `已合并 ${count} 个词条`
+        status.value = t('library.merged', { count })
         error.value = ''
         await refresh()
     } catch (reason) {
@@ -218,21 +222,25 @@ onBeforeUnmount(() => {
     <AppShell :active="tab" :known="known">
         <template v-if="tab === 'library'">
             <header class="page-heading">
-                <h1>{{ inCollection ? '阅读收藏' : '我的词库' }}</h1>
-                <a v-if="inCollection" class="button-link" href="#library">返回词库</a>
+                <h1>{{ inCollection ? t('library.collection') : t('common.library') }}</h1>
+                <a v-if="inCollection" class="button-link" href="#library">{{ t('library.back') }}</a>
                 <a v-else class="button-link" href="reader.html">
                     <BookOpen :size="15" />
-                    继续阅读
+                    {{ t('library.continueReading') }}
                 </a>
             </header>
             <div class="library-toolbar">
                 <button class="primary" @click="adding = true">
                     <Plus :size="18" />
-                    添加单词
+                    {{ t('library.addWord') }}
                 </button>
                 <div v-if="inCollection" class="search-field">
                     <Search :size="20" />
-                    <input v-model="query" placeholder="搜索或输入一个新单词" aria-label="搜索词库" />
+                    <input
+                        v-model="query"
+                        :placeholder="t('library.searchPlaceholder')"
+                        :aria-label="t('library.search')"
+                    />
                 </div>
             </div>
             <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -242,14 +250,14 @@ onBeforeUnmount(() => {
                     <span class="language-chip">EN</span>
                     <Pin :size="17" class="orange-text" />
                 </div>
-                <h2>阅读收藏</h2>
-                <p>在网页与 PDF 阅读中收藏的单词和原句。</p>
+                <h2>{{ t('library.collection') }}</h2>
+                <p>{{ t('library.collectionIntro') }}</p>
                 <div class="collection-bottom">
                     <span>
                         <strong>{{ words.length.toLocaleString() }}</strong>
-                        个词条
+                        {{ t('library.wordCountLabel') }}
                     </span>
-                    <span>{{ progress }}% 已掌握</span>
+                    <span>{{ t('library.knownPercent', { percent: progress }) }}</span>
                 </div>
                 <div class="progress-track">
                     <span :style="{ width: progress + '%' }"></span>
@@ -261,41 +269,41 @@ onBeforeUnmount(() => {
                 <div class="state-counts">
                     <span>
                         <b class="count-learning">{{ learning }}</b>
-                        学习中
+                        {{ t('common.learning') }}
                     </span>
                     <span>
                         <b class="count-known">{{ known }}</b>
-                        已掌握
+                        {{ t('common.known') }}
                     </span>
                     <span>
                         <b class="count-ignored">{{ ignored }}</b>
-                        已忽略
+                        {{ t('common.ignored') }}
                     </span>
                 </div>
                 <a class="button-link collection-open" href="#collection">
-                    打开收藏集
+                    {{ t('library.openCollection') }}
                     <ArrowUpRight :size="16" />
                 </a>
             </article>
             <section v-else class="panel word-list-panel">
                 <div class="word-list-heading">
-                    <h2>词条</h2>
-                    <select v-model="filter" aria-label="筛选词汇状态">
-                        <option value="all">全部状态</option>
-                        <option value="learning">学习中</option>
+                    <h2>{{ t('library.words') }}</h2>
+                    <select v-model="filter" :aria-label="t('library.filter')">
+                        <option value="all">{{ t('library.allStates') }}</option>
+                        <option value="learning">{{ t('common.learning') }}</option>
                         <option v-for="level in learningLevels" :key="level" :value="`level-${level}`">
-                            学习 {{ level }} 级
+                            {{ t('rating.learningLevel', { level }) }}
                         </option>
-                        <option value="known">已掌握</option>
-                        <option value="ignored">已忽略</option>
+                        <option value="known">{{ t('common.known') }}</option>
+                        <option value="ignored">{{ t('common.ignored') }}</option>
                     </select>
                 </div>
                 <div v-if="!words.length" class="empty">
                     <div class="empty-icon"><BookOpen :size="30" /></div>
-                    <h2>收藏阅读中的第一个单词</h2>
-                    <p>在网页中开启 XGloss，或打开 PDF 开始阅读。</p>
+                    <h2>{{ t('library.firstWord') }}</h2>
+                    <p>{{ t('library.getStarted') }}</p>
                     <a class="button-link" href="reader.html">
-                        打开 PDF 阅读器
+                        {{ t('library.openPdf') }}
                         <ArrowUpRight :size="16" />
                     </a>
                 </div>
@@ -308,40 +316,46 @@ onBeforeUnmount(() => {
                             {{ details.get(word.key)?.encounter?.context }}
                         </p>
                     </div>
-                    <p v-if="meaningFor(word.key)" class="collection-meaning">{{ meaningFor(word.key) }}</p>
+                    <p v-if="meaningFor(word)" class="collection-meaning">{{ meaningFor(word) }}</p>
                     <select
-                        :aria-label="`${word.text} · ${ratingLabel(word)}`"
+                        :aria-label="`${word.text} - ${ratingLabel(word)}`"
                         :value="ratingValue(word)"
                         :disabled="ratingPending.has(word.key)"
                         @change="rate(word, $event)"
                     >
                         <option v-for="level in learningLevels" :key="level" :value="`level-${level}`">
-                            学习 {{ level }} 级
+                            {{ t('rating.learningLevel', { level }) }}
                         </option>
-                        <option value="known">已掌握</option>
-                        <option value="ignored">已忽略</option>
+                        <option value="known">{{ t('common.known') }}</option>
+                        <option value="ignored">{{ t('common.ignored') }}</option>
                     </select>
                 </div>
-                <p v-if="words.length && !filtered.length" class="muted small">没有符合条件的词条。</p>
-                <nav v-if="pages > 1" class="row collection-pages" aria-label="词库分页">
-                    <button :disabled="page <= 1" @click="currentPage = page - 1">上一页</button>
-                    <span>第 {{ page }} / {{ pages }} 页</span>
-                    <button :disabled="page >= pages" @click="currentPage = page + 1">下一页</button>
+                <p v-if="words.length && !filtered.length" class="muted small">
+                    {{ t('library.noResults') }}
+                </p>
+                <nav v-if="pages > 1" class="row collection-pages" :aria-label="t('library.pagination')">
+                    <button :disabled="page <= 1" @click="currentPage = page - 1">
+                        {{ t('common.previousPage') }}
+                    </button>
+                    <span>{{ t('library.pageNumber', { page, pages }) }}</span>
+                    <button :disabled="page >= pages" @click="currentPage = page + 1">
+                        {{ t('common.nextPage') }}
+                    </button>
                 </nav>
             </section>
             <div class="import-actions">
                 <button @click="backup">
                     <Download :size="15" />
-                    JSON 备份
+                    {{ t('library.jsonBackup') }}
                 </button>
                 <button @click="csv">
                     <Download :size="15" />
-                    CSV 词表
+                    {{ t('library.csvWords') }}
                 </button>
                 <label class="import-button">
                     <input type="file" accept=".json,.csv" style="display: none" @change="restore" />
                     <Upload :size="15" />
-                    导入 JSON / CSV
+                    {{ t('library.import') }}
                 </label>
             </div>
         </template>
@@ -350,24 +364,30 @@ onBeforeUnmount(() => {
         <div v-if="adding" class="modal-backdrop" @click.self="adding = false">
             <form class="modal" @submit.prevent="addWords('learning')">
                 <div class="row between">
-                    <h2>添加单词</h2>
+                    <h2>{{ t('library.addWord') }}</h2>
                     <button
                         class="icon-button"
                         type="button"
-                        aria-label="关闭添加窗口"
+                        :aria-label="t('library.closeAddWord')"
                         @click="adding = false"
                     >
                         <X :size="20" />
                     </button>
                 </div>
                 <label class="field">
-                    <span>单词或短语</span>
-                    <input v-model="newWord" required maxlength="200" placeholder="例如 register" autofocus />
+                    <span>{{ t('library.wordOrPhrase') }}</span>
+                    <input
+                        v-model="newWord"
+                        required
+                        maxlength="200"
+                        :placeholder="t('library.exampleWord')"
+                        autofocus
+                    />
                 </label>
                 <p v-if="error" class="error" role="alert">{{ error }}</p>
                 <div class="row">
-                    <button type="button" @click="addWords('known')">标记熟词</button>
-                    <button class="primary" type="submit">加入生词</button>
+                    <button type="button" @click="addWords('known')">{{ t('library.markKnown') }}</button>
+                    <button class="primary" type="submit">{{ t('library.addLearning') }}</button>
                 </div>
             </form>
         </div>
@@ -376,13 +396,14 @@ onBeforeUnmount(() => {
                 <WordCard
                     :text="selectedWord.text"
                     :rating="selectedWord"
+                    :saved-meaning="selectedWord.meaning"
                     :save-source="false"
-                    :source="encounters[0] ?? { title: '本地词库', url: '', context: '' }"
+                    :source="encounters[0] ?? { title: t('common.localLibrary'), url: '', context: '' }"
                     @saved="refresh"
                     @close="selected = ''"
                 />
                 <div v-if="encounters.length" class="encounter-list">
-                    <h3>遇词记录</h3>
+                    <h3>{{ t('library.encounters') }}</h3>
                     <div v-for="encounter in encounters" :key="encounter.id">
                         <a
                             v-if="safeSource(encounter.url)"
@@ -393,7 +414,10 @@ onBeforeUnmount(() => {
                             {{ encounter.title }}
                         </a>
                         <span v-else>{{ encounter.title }}</span>
-                        <span v-if="encounter.page">· 第 {{ encounter.page }} 页</span>
+                        <span v-if="encounter.page">
+                            {{ t('library.encounterPage', { page: encounter.page }) }}
+                        </span>
+                        <p v-if="encounter.meaning" class="collection-meaning">{{ encounter.meaning }}</p>
                         <blockquote>{{ encounter.context }}</blockquote>
                     </div>
                 </div>

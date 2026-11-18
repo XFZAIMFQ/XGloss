@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { BookOpen, Check, Bookmark, EyeOff, CalendarDays } from '@lucide/vue'
 import { errorMessage, type LearningActivity, type Word } from '../domain/models'
@@ -40,7 +41,7 @@ const error = ref('')
 const dayError = ref('')
 const heatmapScroll = ref<HTMLElement>()
 const streaks = computed(() => activityStreaks(counts.value, first, today))
-const labels = { added: '新增词条', rated: '调整等级', reviewed: '完成复习' }
+const labels = { added: t('stats.added'), rated: t('stats.rated'), reviewed: t('stats.reviewed') }
 const wordsByKey = computed(() => new Map(props.words.map((word) => [word.key, word.text])))
 let summaryGeneration = 0
 let dayGeneration = 0
@@ -124,64 +125,64 @@ onBeforeUnmount(() => {
 <template>
     <header class="page-heading">
         <div>
-            <h1>学习统计</h1>
-            <p class="muted">查看词汇积累与当前掌握情况</p>
+            <h1>{{ t('common.statistics') }}</h1>
+            <p class="muted">{{ t('stats.intro') }}</p>
         </div>
     </header>
     <section class="metric-grid">
         <article class="metric-card">
-            <span>全部词条</span>
+            <span>{{ t('stats.all') }}</span>
             <div>
                 <strong>{{ words.length }}</strong>
                 <BookOpen />
             </div>
-            <p>本地词库</p>
+            <p>{{ t('common.localLibrary') }}</p>
         </article>
         <article class="metric-card">
-            <span>学习中</span>
+            <span>{{ t('common.learning') }}</span>
             <div>
                 <strong>{{ learning }}</strong>
                 <Bookmark class="orange-text" />
             </div>
-            <p>继续在阅读中巩固</p>
+            <p>{{ t('stats.learningHelp') }}</p>
         </article>
         <article class="metric-card">
-            <span>已掌握</span>
+            <span>{{ t('common.known') }}</span>
             <div>
                 <strong>{{ known }}</strong>
                 <Check class="lime-text" />
             </div>
-            <p>{{ progress }}% 的词条已掌握</p>
+            <p>{{ t('stats.knownPercent', { percent: progress }) }}</p>
             <div class="progress-track"><span :style="{ width: progress + '%' }"></span></div>
         </article>
         <article class="metric-card">
-            <span>已忽略</span>
+            <span>{{ t('common.ignored') }}</span>
             <div>
                 <strong>{{ ignored }}</strong>
                 <EyeOff />
             </div>
-            <p>已从生词提示中排除</p>
+            <p>{{ t('stats.ignoredHelp') }}</p>
         </article>
     </section>
     <section class="panel activity-panel">
-        <h2>学习活动日历</h2>
+        <h2>{{ t('stats.calendar') }}</h2>
         <p class="muted small">
-            最近一年 · 当前连续 {{ streaks.current }} 天 · 最长 {{ streaks.longest }} 天
+            {{ t('stats.streak', { current: streaks.current, longest: streaks.longest }) }}
         </p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <p v-if="loading" class="muted small" role="status">正在读取学习活动…</p>
+        <p v-if="loading" class="muted small" role="status">{{ t('stats.loading') }}</p>
         <div ref="heatmapScroll" class="heatmap-scroll">
-            <div class="heatmap" role="group" aria-label="学习活动热力图" @keydown="move">
+            <div class="heatmap" role="group" :aria-label="t('stats.heatmap')" @keydown="move">
                 <span
                     v-for="month in months"
                     :key="month.label"
                     class="heatmap-label"
                     :style="{ gridRow: 1, gridColumn: month.column }"
                 >
-                    {{ month.date.getMonth() + 1 }}月
+                    {{ t('stats.month', { month: month.date.getMonth() + 1 }) }}
                 </span>
                 <span
-                    v-for="(day, index) in ['一', '三', '五']"
+                    v-for="(day, index) in [t('stats.monday'), t('stats.wednesday'), t('stats.friday')]"
                     :key="day"
                     class="heatmap-label"
                     :style="{ gridRow: 3 + index * 2, gridColumn: 1 }"
@@ -194,8 +195,8 @@ onBeforeUnmount(() => {
                     type="button"
                     class="heatmap-cell"
                     :data-intensity="intensity(counts[day.label] ?? 0)"
-                    :aria-label="`${day.label} · ${counts[day.label] ?? 0} 个词条`"
-                    :title="`${day.label} · ${counts[day.label] ?? 0} 个词条`"
+                    :aria-label="t('stats.dayTotal', { date: day.label, count: counts[day.label] ?? 0 })"
+                    :title="t('stats.dayTotal', { date: day.label, count: counts[day.label] ?? 0 })"
                     :aria-pressed="selected === day.label"
                     :tabindex="selected === day.label ? 0 : -1"
                     :style="{ gridRow: day.row, gridColumn: day.column }"
@@ -205,20 +206,21 @@ onBeforeUnmount(() => {
         </div>
         <div class="heatmap-legend">
             <CalendarDays :size="16" />
-            <span>最近一年</span>
+            <span>{{ t('stats.lastYear') }}</span>
             <span class="legend-space"></span>
-            <span>少</span>
+            <span>{{ t('stats.few') }}</span>
             <i v-for="level in 5" :key="level" :data-intensity="level - 1"></i>
-            <span>多</span>
+            <span>{{ t('stats.many') }}</span>
         </div>
     </section>
     <section class="panel">
-        <h2>{{ selected }} 的学习活动</h2>
+        <h2>{{ t('stats.selectedDay', { date: selected }) }}</h2>
         <p v-if="dayError" class="error" role="alert">{{ dayError }}</p>
-        <p v-else-if="loadingDay" class="muted small" role="status">正在读取当天记录…</p>
-        <p v-else-if="!activity.length" class="empty-description">当天没有学习记录。</p>
+        <p v-else-if="loadingDay" class="muted small" role="status">{{ t('stats.loadingDay') }}</p>
+        <p v-else-if="!activity.length" class="empty-description">{{ t('stats.emptyDay') }}</p>
         <p v-else class="muted small">
-            {{ counts[selected] ?? 0 }} 个词条{{ activity.length > 200 ? ' · 显示最近 200 条活动' : '' }}
+            {{ t('common.wordCount', { count: counts[selected] ?? 0 }) }}
+            <span v-if="activity.length > 200">- {{ t('stats.recentOnly') }}</span>
         </p>
         <div
             v-for="item in loadingDay || dayError ? [] : activity.slice(0, 200)"
@@ -231,7 +233,7 @@ onBeforeUnmount(() => {
             </span>
             <div>
                 <strong>{{ wordsByKey.get(item.wordKey) ?? item.wordKey }}</strong>
-                <p class="muted small">{{ labels[item.kind] }} · {{ ratingLabel(item.rating) }}</p>
+                <p class="muted small">{{ labels[item.kind] }} - {{ ratingLabel(item.rating) }}</p>
             </div>
             <time :datetime="new Date(item.createdAt).toISOString()">
                 {{

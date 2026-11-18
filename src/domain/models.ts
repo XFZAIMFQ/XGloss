@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { z } from 'zod'
 
 export const wordStateSchema = z.enum(['learning', 'known', 'ignored'])
@@ -7,10 +8,12 @@ export const learningLevelSchema = z.literal(learningLevels)
 export type LearningLevel = z.infer<typeof learningLevelSchema>
 export const wordRatingSchema = z.object({ state: wordStateSchema, level: learningLevelSchema.optional() })
 export type WordRating = z.infer<typeof wordRatingSchema>
+export const savedMeaningSchema = z.string().trim().min(1).max(300)
 export const wordSchema = wordRatingSchema.extend({
     key: z.string().min(1).max(200),
     text: z.string().min(1).max(200),
     updatedAt: z.number().finite(),
+    meaning: savedMeaningSchema.optional(),
 })
 export type Word = z.infer<typeof wordSchema>
 export const sourceSchema = z.object({
@@ -25,6 +28,7 @@ export const encounterSchema = sourceSchema.extend({
     id: z.string().min(1),
     wordKey: z.string().min(1),
     createdAt: z.number().finite(),
+    meaning: savedMeaningSchema.optional(),
 })
 export type Encounter = z.infer<typeof encounterSchema>
 export const activitySchema = z.object({
@@ -57,15 +61,30 @@ export const defaultTranslationSettings: TranslationSettings = {
     baseUrl: '',
     apiKey: '',
     model: '',
-    targetLanguage: '简体中文',
+    targetLanguage: t('common.simplifiedChinese'),
     timeoutMs: 30_000,
 }
 export const translationInputSchema = z.object({
     text: z.string().trim().min(1).max(2000),
     context: z.string().max(3000).default(''),
-    detail: z.enum(['simple', 'detailed']).optional(),
 })
 export type TranslationInput = z.infer<typeof translationInputSchema>
+export const translationResultSchema = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('meanings'),
+        meanings: z
+            .array(
+                z.object({
+                    text: z.string().trim().min(1).max(300),
+                    partOfSpeech: z.string().trim().max(40).optional(),
+                }),
+            )
+            .min(1)
+            .max(5),
+    }),
+    z.object({ kind: z.literal('text'), text: z.string().trim().min(1).max(8000) }),
+])
+export type TranslationResult = z.infer<typeof translationResultSchema>
 export const definitionModeSchema = z.enum(['simple', 'detailed'])
 export type DefinitionMode = z.infer<typeof definitionModeSchema>
 export interface DictionaryEntry {
@@ -87,5 +106,5 @@ export const pdfBookmarkSchema = z.object({
 export type PdfBookmark = z.infer<typeof pdfBookmarkSchema>
 
 export function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : '操作失败，请重试'
+    return error instanceof Error ? error.message : t('common.retryError')
 }

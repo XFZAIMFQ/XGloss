@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { browser } from 'wxt/browser'
 import type { DictionaryEntry } from '../domain/models'
 import { normalizeWord } from '../domain/vocabulary'
@@ -7,7 +8,7 @@ const loading = new Map<string, Promise<Record<string, DictionaryEntry>>>()
 
 async function loadShard(key: string): Promise<Record<string, DictionaryEntry>> {
     const response = await fetch(new URL(`dictionary/${key}.json`, browser.runtime.getURL('/')).href)
-    if (!response.ok) throw new Error('本地词典资源尚未准备，请运行 npm run dictionary:prepare 后重新构建')
+    if (!response.ok) throw new Error(t('dictionary.resourceMissing'))
     const shard = (await response.json()) as Record<string, DictionaryEntry>
     if (shards.size >= 3) shards.delete(shards.keys().next().value!)
     shards.set(key, shard)

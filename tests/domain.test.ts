@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     calculateCoverage,
+    contextAround,
     countTokens,
     highlightKind,
     normalizeWord,
@@ -12,7 +13,7 @@ import { activityStreaks, localDay, summarizeActivity } from '../src/domain/acti
 
 describe('vocabulary statistics', () => {
     it('normalizes casing and apostrophes while excluding identifiers', () => {
-        expect(normalizeWord('  CAN’T  ')).toBe("can't")
+        expect(normalizeWord('  CAN\u2019T  ')).toBe("can't")
         expect(tokenize('hardware_adc GPIO15 valid words')).toHaveLength(2)
     })
     it('counts occurrences and unique unknown words with consistent exclusions', () => {
@@ -56,6 +57,14 @@ describe('CSV import', () => {
         expect(() => parseWordCsv('word,state,level\nregister,learning,5')).toThrow()
         expect(() => parseWordCsv('word,state,level\nregister,ignored,4')).toThrow()
     })
+    it('imports an optional escaped preferred meaning', () => {
+        expect(
+            parseWordCsv('word,state,level,meaning\nregister,learning,2,"登记,记录"').words[0]?.meaning,
+        ).toBe('登记,记录')
+        expect(
+            parseWordCsv('word,state,level,meaning\nregister,learning,2,"\'=test"').words[0]?.meaning,
+        ).toBe('=test')
+    })
 })
 
 describe('dictionary presentation', () => {
@@ -69,6 +78,23 @@ describe('dictionary presentation', () => {
         }
         expect(dictionaryMeanings(entry, 'simple')).toEqual(['将来', '来世', '此后', '[法] 以后'])
         expect(dictionaryMeanings(entry, 'detailed')[0]).toBe('n. 将来, 来世')
+    })
+    it('normalizes punctuation without splitting a gloss inside brackets', () => {
+        const entry = {
+            word: 'run',
+            phonetic: '',
+            definition: '',
+            exchange: '',
+            translation: 'v. 运行\uff08程序\u3001系统\uff09\uff0c跑步',
+        }
+        expect(dictionaryMeanings(entry, 'simple')).toEqual(['运行(程序,系统)', '跑步'])
+    })
+    it('uses the selected occurrence to disambiguate repeated words', () => {
+        const text = 'Read the hardware register. Then register an account.'
+        expect(contextAround(text, 'register')).toBe('Read the hardware register.')
+        expect(contextAround(text, 'register', 1000, text.lastIndexOf('register'))).toBe(
+            'Then register an account.',
+        )
     })
 })
 

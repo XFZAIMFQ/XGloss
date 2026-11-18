@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { database } from './database'
 import {
     backupSchema,
@@ -8,14 +9,23 @@ import {
 } from '../domain/models'
 import { normalizeWord } from '../domain/vocabulary'
 
+function encounterId(key: string, source: WordSource): string {
+    return JSON.stringify([key, source.documentId ?? source.url, source.page ?? 0, source.context])
+}
+
+export async function loadEncounterMeaning(text: string, source: WordSource) {
+    const db = await database
+    return (await db.get('encounters', encounterId(normalizeWord(text), source)))?.meaning
+}
+
 export async function saveWord(
     text: string,
     state: WordState,
     source?: WordSource,
-    options?: { level?: LearningLevel; reviewed?: boolean; id?: string },
+    options?: { level?: LearningLevel; reviewed?: boolean; id?: string; meaning?: string },
 ): Promise<void> {
     const key = normalizeWord(text)
-    if (!key || key.length > 200) throw new Error('请选择 200 字符以内的单词或短语')
+    if (!key || key.length > 200) throw new Error(t('backup.length'))
     const db = await database
     const tx = db.transaction(['words', 'encounters', 'activities'], 'readwrite')
     const words = tx.objectStore('words')
@@ -30,8 +40,11 @@ export async function saveWord(
     const level = state === 'learning' ? (options?.level ?? previous?.level ?? 1) : undefined
     const rating = { state, level }
     const changed = !previous || previous.state !== state || (previous.level ?? 1) !== (level ?? 1)
+    const meaning = options?.meaning ?? previous?.meaning
+    if (changed || options?.reviewed || meaning !== previous?.meaning) {
+        await words.put({ key, text: previous?.text ?? text.trim(), ...rating, meaning, updatedAt: now })
+    }
     if (changed || options?.reviewed) {
-        await words.put({ key, text: previous?.text ?? text.trim(), ...rating, updatedAt: now })
         await activities.add({
             id,
             wordKey: key,
@@ -41,13 +54,14 @@ export async function saveWord(
         })
     }
     if (source) {
-        const id = JSON.stringify([key, source.documentId ?? source.url, source.page ?? 0, source.context])
+        const id = encounterId(key, source)
         const previous = await tx.objectStore('encounters').get(id)
         await tx.objectStore('encounters').put({
             ...source,
             id,
             wordKey: key,
             createdAt: previous?.createdAt ?? now,
+            meaning: options?.meaning ?? previous?.meaning,
         })
     }
     await tx.done
@@ -68,22 +82,27 @@ export async function importVocabulary(input: unknown): Promise<number> {
     const backup = backupSchema.parse(input)
     const keys = new Set(backup.words.map((word) => word.key))
     if (backup.words.some((word) => normalizeWord(word.text) !== word.key)) {
-        throw new Error('词条键与单词不匹配')
+        throw new Error(t('backup.invalidKey'))
     }
     if (backup.encounters.some((encounter) => !keys.has(encounter.wordKey))) {
-        throw new Error('备份中存在缺失词条的遇词记录')
+        throw new Error(t('backup.missingEncounterWord'))
     }
     const activities = backup.version === 2 ? backup.activities : []
     if (activities.some((activity) => !keys.has(activity.wordKey))) {
-        throw new Error('备份中存在缺失词条的学习活动')
+        throw new Error(t('backup.missingActivityWord'))
     }
     const db = await database
     const tx = db.transaction(['words', 'encounters', 'activities'], 'readwrite')
     for (const word of backup.words) {
         const existing = await tx.objectStore('words').get(word.key)
-        if (!existing || word.updatedAt > existing.updatedAt) await tx.objectStore('words').put(word)
+        if (!existing || word.updatedAt > existing.updatedAt)
+            await tx.objectStore('words').put({ ...word, meaning: word.meaning ?? existing?.meaning })
     }
-    for (const encounter of backup.encounters) await tx.objectStore('encounters').put(encounter)
+    for (const encounter of backup.encounters) {
+        const store = tx.objectStore('encounters')
+        const existing = encounter.meaning === undefined ? await store.get(encounter.id) : undefined
+        await store.put({ ...encounter, meaning: encounter.meaning ?? existing?.meaning })
+    }
     const store = tx.objectStore('activities')
     for (const activity of activities) {
         if (!(await store.getKey(activity.id))) await store.add(activity)

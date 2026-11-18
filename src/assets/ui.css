@@ -663,6 +663,45 @@ blockquote {
     white-space: pre-wrap;
 }
 
+.meaning-options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.meaning-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 100%;
+}
+
+.meaning-option {
+    display: inline-flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 5px;
+    min-height: 28px;
+    min-width: 0;
+    padding: 2px 7px;
+    border-radius: 6px;
+    text-align: start;
+    overflow-wrap: anywhere;
+}
+
+.meaning-option[aria-pressed='true'] {
+    color: #3e3665;
+    border-color: #7768ab;
+    background: #f0ebfa;
+}
+
+.context-match {
+    display: inline-flex;
+    flex: none;
+    color: #746392;
+}
+
 .word-card-content blockquote {
     margin: 6px 0 0;
     padding: 2px 0 2px 8px;
@@ -681,16 +720,15 @@ blockquote {
     vertical-align: baseline;
 }
 
-.translation {
-    padding-top: 5px;
-    border-top: 1px solid var(--line);
-}
-
 .card-footer {
     justify-content: space-between;
     flex-wrap: wrap;
     padding-top: 5px;
     border-top: 1px solid var(--line);
+}
+
+.card-footer:empty {
+    display: none;
 }
 
 .online-lookup {

@@ -1,12 +1,22 @@
 import { openDB, type DBSchema } from 'idb'
-import type { Encounter, LearningActivity, PdfBookmark, ReadingProgress, Word } from '../domain/models'
+import type {
+    Encounter,
+    LearningActivity,
+    PdfBookmark,
+    ReadingProgress,
+    TranslationResult,
+    Word,
+} from '../domain/models'
 
 interface XGlossDatabase extends DBSchema {
     words: { key: string; value: Word }
     encounters: { key: string; value: Encounter; indexes: { wordKey: string; wordDate: [string, number] } }
     activities: { key: string; value: LearningActivity; indexes: { createdAt: number } }
     bookmarks: { key: [string, number]; value: PdfBookmark; indexes: { documentId: string } }
-    translations: { key: string; value: { key: string; text: string; createdAt: number } }
+    translations: {
+        key: string
+        value: { key: string; createdAt: number } & ({ text: string } | { result: TranslationResult })
+    }
     progress: { key: string; value: ReadingProgress }
 }
 

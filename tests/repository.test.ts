@@ -23,7 +23,8 @@ await legacy.put('progress', { id: 'pdf:legacy', page: 5, updatedAt: 3 })
 legacy.close()
 
 const { database } = await import('../src/data/database')
-const { exportVocabulary, importVocabulary, saveWord } = await import('../src/data/vocabulary-repository')
+const { exportVocabulary, importVocabulary, loadEncounterMeaning, saveWord } =
+    await import('../src/data/vocabulary-repository')
 
 it('upgrades a version 1 database without losing words, encounters, or PDF progress', async () => {
     const db = await database
@@ -49,6 +50,27 @@ describe('persistent vocabulary', () => {
         expect(backup.words).toHaveLength(1)
         expect(backup.words[0]?.state).toBe('known')
         expect(backup.encounters).toHaveLength(1)
+    })
+    it('keeps a chosen meaning per encounter and updates it even at the same rating', async () => {
+        const first = { title: 'Document', url: 'https://example.com', context: 'Read the register.' }
+        const second = { ...first, context: 'Register an account.' }
+        await saveWord('register', 'learning', first, { level: 2, meaning: '寄存器' })
+        await saveWord('register', 'learning', second, { level: 2, meaning: '登记' })
+        const backup = await exportVocabulary()
+        expect(backup.activities).toHaveLength(1)
+        expect(backup.words[0]?.meaning).toBe('登记')
+        expect(await loadEncounterMeaning('Register', first)).toBe('寄存器')
+        expect(await loadEncounterMeaning('register', second)).toBe('登记')
+        await saveWord('register', 'known', second)
+        expect((await exportVocabulary()).words[0]?.meaning).toBe('登记')
+        const legacy = {
+            version: 1 as const,
+            words: [{ key: 'register', text: 'Register', state: 'learning', updatedAt: Date.now() + 1000 }],
+            encounters: backup.encounters.map((record) => ({ ...record, meaning: undefined })),
+        }
+        await importVocabulary(legacy)
+        expect((await exportVocabulary()).words[0]?.meaning).toBe('登记')
+        expect(await loadEncounterMeaning('register', first)).toBe('寄存器')
     })
     it('validates an entire backup before importing and retains newer state', async () => {
         await saveWord('hello', 'known')

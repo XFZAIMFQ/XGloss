@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { learningLevels, type Word, type WordRating } from './models'
 
 export const highlightKinds = [
@@ -7,8 +8,8 @@ export const highlightKinds = [
 export type HighlightKind = (typeof highlightKinds)[number]
 
 export function ratingLabel(rating: WordRating): string {
-    if (rating.state === 'learning') return `学习 ${rating.level ?? 1} 级`
-    return rating.state === 'known' ? '已掌握' : '已忽略'
+    if (rating.state === 'learning') return t('rating.learningLevel', { level: rating.level ?? 1 })
+    return rating.state === 'known' ? t('common.known') : t('common.ignored')
 }
 
 export function highlightKind(rating: WordRating | undefined): HighlightKind | undefined {
@@ -36,14 +37,26 @@ export interface Coverage {
 }
 
 export function normalizeWord(text: string): string {
-    return text.normalize('NFKC').trim().replaceAll('’', "'").toLowerCase()
+    return text.normalize('NFKC').trim().replaceAll('\u2019', "'").toLowerCase()
 }
 
-export function contextAround(text: string, selected: string, limit = 1000): string {
+const sentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' })
+
+export function contextAround(text: string, selected: string, limit = 1000, sourceOffset?: number): string {
     const compact = text.replace(/\s+/g, ' ').trim()
-    const index = compact.toLowerCase().indexOf(selected.toLowerCase())
-    const start = Math.max(0, index - Math.floor((limit - selected.length) / 2))
-    return compact.slice(start, start + limit)
+    const needle = selected.replace(/\s+/g, ' ').trim().toLowerCase()
+    const index =
+        sourceOffset === undefined
+            ? compact.toLowerCase().indexOf(needle)
+            : text.slice(0, sourceOffset).replace(/\s+/g, ' ').trimStart().length
+    if (index < 0 || !needle) return ''
+    const start = Math.max(0, index - Math.floor(limit / 2))
+    const end = index + needle.length + Math.floor(limit / 2)
+    const excerpt = compact.slice(start, end)
+    const segment = sentenceSegmenter.segment(excerpt).containing(index - start)
+    if (segment && index - start + needle.length <= segment.index + segment.segment.length)
+        return segment.segment.trim().slice(0, limit)
+    return excerpt.slice(0, limit)
 }
 
 export function tokenize(text: string): Token[] {
@@ -52,7 +65,7 @@ export function tokenize(text: string): Token[] {
         ...text.matchAll(/(?:https?:\/\/|www\.)\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g),
     ]
     let exclusion = 0
-    for (const match of text.matchAll(/\b[A-Za-z]+(?:['’][A-Za-z]+)*(?:-[A-Za-z]+)*\b/g)) {
+    for (const match of text.matchAll(/\b[A-Za-z]+(?:['\u2019][A-Za-z]+)*(?:-[A-Za-z]+)*\b/g)) {
         const start = match.index
         const end = start + match[0].length
         while (excluded[exclusion] && excluded[exclusion]!.index + excluded[exclusion]![0].length <= start)

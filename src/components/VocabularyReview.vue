@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from '../i18n'
+import { dictionaryMeanings } from '../domain/definitions'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ArrowRight, Play, Keyboard, Layers, Languages, Volume2, X, Check } from '@lucide/vue'
 import type { Word, WordState } from '../domain/models'
@@ -23,20 +25,20 @@ const available = computed(() => props.words.filter((word) => word.state === 'le
 const modes = [
     {
         id: 'flashcard' as const,
-        title: '单词闪卡',
-        description: '先回忆词义，再翻开卡片查看释义。',
+        title: t('review.flashcards'),
+        description: t('review.flashcardsHelp'),
         icon: Layers,
     },
     {
         id: 'translation' as const,
-        title: '词义 → 单词',
-        description: '根据中文释义回忆并输入英文单词。',
+        title: t('review.translation'),
+        description: t('review.translationHelp'),
         icon: Languages,
     },
     {
         id: 'typing' as const,
-        title: '拼写练习',
-        description: '看词、朗读，再输入完整的单词。',
+        title: t('review.spelling'),
+        description: t('review.spellingHelp'),
         icon: Keyboard,
     },
 ]
@@ -51,17 +53,16 @@ async function start(nextMode: Mode) {
             .slice(0, limit.value)
         const entries = await Promise.all(
             candidates.map(async (word) => {
+                if (word.meaning) return { word, definition: word.meaning }
                 const entry = await request('lookup', word.text)
-                return { word, definition: entry?.translation || entry?.definition || '' }
+                return { word, definition: dictionaryMeanings(entry, 'detailed').join('\n') }
             }),
         )
         if (currentGeneration !== generation) return
         deck.value = nextMode === 'translation' ? entries.filter((entry) => entry.definition) : entries
         if (!deck.value.length)
             throw new Error(
-                nextMode === 'translation'
-                    ? '当前学习词条中暂无可用的本地释义。'
-                    : '先将阅读中遇到的单词加入生词，再开始复习。',
+                nextMode === 'translation' ? t('review.noDefinitions') : t('review.noLearningWords'),
             )
         mode.value = nextMode
         index.value = 0
@@ -78,8 +79,8 @@ function check() {
     revealed.value = true
     feedback.value =
         answer.value.trim().toLowerCase() === current.value?.word.text.toLowerCase()
-            ? '拼写正确'
-            : `正确拼写为 ${current.value?.word.text}`
+            ? t('review.correct')
+            : t('review.correctSpelling', { word: current.value?.word.text ?? '' })
 }
 async function rate(state: WordState) {
     if (!current.value || rating.value) return
@@ -112,18 +113,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header class="page-heading"><h1>复习训练</h1></header>
+    <header class="page-heading">
+        <h1>{{ t('common.review') }}</h1>
+    </header>
     <div class="panel review-filters">
         <div>
-            <span class="muted small">词库</span>
+            <span class="muted small">{{ t('review.libraryLabel') }}</span>
             <div class="review-source">
                 EN
-                <strong>我的词库</strong>
-                <span class="muted">{{ available.length }} 个学习中词条</span>
+                <strong>{{ t('common.library') }}</strong>
+                <span class="muted">{{ t('review.learningCount', { count: available.length }) }}</span>
             </div>
         </div>
         <label class="review-limit" for="review-limit">
-            每次词数
+            {{ t('review.sessionSize') }}
             <select id="review-limit" v-model.number="limit">
                 <option :value="10">10</option>
                 <option :value="20">20</option>
@@ -133,7 +136,7 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <template v-if="!mode">
-        <p class="section-label">选择复习方式</p>
+        <p class="section-label">{{ t('review.chooseMode') }}</p>
         <div class="review-grid">
             <article v-for="item in modes" :key="item.id" class="review-mode">
                 <component :is="item.icon" class="review-watermark" :size="112" :stroke-width="1.5" />
@@ -141,7 +144,7 @@ onBeforeUnmount(() => {
                 <p>{{ item.description }}</p>
                 <button class="primary" :disabled="loading" @click="start(item.id)">
                     <Play :size="17" fill="currentColor" />
-                    {{ loading ? '准备中…' : '开始' }}
+                    {{ loading ? t('review.preparing') : t('review.start') }}
                 </button>
             </article>
         </div>
@@ -149,45 +152,53 @@ onBeforeUnmount(() => {
     <section v-else class="panel review-session">
         <div class="row between">
             <span class="muted">{{ Math.min(index + 1, deck.length) }} / {{ deck.length }}</span>
-            <button class="icon-button" aria-label="退出复习" @click="mode = null"><X :size="20" /></button>
+            <button class="icon-button" :aria-label="t('review.exit')" @click="mode = null">
+                <X :size="20" />
+            </button>
         </div>
         <template v-if="current">
             <div class="review-prompt">
-                <p class="muted">{{ mode === 'translation' ? '根据释义回忆单词' : '回忆这个词的含义' }}</p>
+                <p class="muted">
+                    {{ mode === 'translation' ? t('review.recallTranslation') : t('review.recallMeaning') }}
+                </p>
                 <h2>{{ mode === 'translation' && !revealed ? current.definition : current.word.text }}</h2>
                 <button
                     v-if="mode !== 'translation' || revealed"
                     class="icon-button"
-                    aria-label="朗读单词"
+                    :aria-label="t('review.speakWord')"
                     @click="speak"
                 >
                     <Volume2 :size="24" />
                 </button>
             </div>
             <form v-if="mode !== 'flashcard'" class="review-answer" @submit.prevent="check">
-                <input v-model="answer" placeholder="输入英文单词" autocomplete="off" />
+                <input v-model="answer" :placeholder="t('review.answerPlaceholder')" autocomplete="off" />
                 <button class="primary" type="submit">
-                    检查
+                    {{ t('review.check') }}
                     <ArrowRight :size="18" />
                 </button>
             </form>
-            <button v-else-if="!revealed" class="soft-button" @click="revealed = true">查看释义</button>
+            <button v-else-if="!revealed" class="soft-button" @click="revealed = true">
+                {{ t('review.showMeaning') }}
+            </button>
             <p v-if="feedback" class="review-feedback">{{ feedback }}</p>
             <p v-if="revealed" class="review-definition">
-                {{ current.definition || '本地词典暂无释义，可在词库中查询在线语境释义。' }}
+                {{ current.definition || t('review.offlineMissing') }}
             </p>
             <div v-if="revealed" class="review-rating">
-                <button :disabled="rating" @click="rate('learning')">继续学习</button>
+                <button :disabled="rating" @click="rate('learning')">
+                    {{ t('review.continueLearning') }}
+                </button>
                 <button class="primary" :disabled="rating" @click="rate('known')">
                     <Check :size="18" />
-                    已掌握
+                    {{ t('common.known') }}
                 </button>
             </div>
         </template>
         <div v-else class="review-complete">
             <Check :size="48" class="lime-text" />
-            <h2>本轮复习完成</h2>
-            <button class="primary" @click="mode = null">返回复习列表</button>
+            <h2>{{ t('review.finished') }}</h2>
+            <button class="primary" @click="mode = null">{{ t('review.back') }}</button>
         </div>
     </section>
 </template>

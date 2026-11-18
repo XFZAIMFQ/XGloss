@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 import { ref } from 'vue'
 import { Highlighter } from '@lucide/vue'
 import { errorMessage } from '../domain/models'
@@ -25,8 +26,8 @@ async function toggle() {
         <button
             type="button"
             class="icon-button spotlight-button"
-            aria-label="Spotlight 正文高亮"
-            title="Spotlight · 对所有网页和 PDF 生效"
+            :aria-label="t('spotlight.toggle')"
+            :title="t('spotlight.help')"
             :aria-pressed="enabled"
             :disabled="busy"
             @click="toggle"

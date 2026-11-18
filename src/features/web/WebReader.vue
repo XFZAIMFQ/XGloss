@@ -1,17 +1,19 @@
 <script setup lang="ts">
+import { t } from '../../i18n'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import FloatingWordCard from '../../components/FloatingWordCard.vue'
 import ReadingPanel from '../../components/ReadingPanel.vue'
-import { contextAround, normalizeWord } from '../../domain/vocabulary'
+import { normalizeWord } from '../../domain/vocabulary'
 import { errorMessage, type Word, type WordSource } from '../../domain/models'
 import { onVocabularyChanged, request } from '../../platform/messages'
 import { PageAnalyzer } from './page-analyzer'
 import { selectionAnchor } from '../reading/selection-anchor'
+import { selectionContext } from '../reading/selection-context'
 import { useSpotlight } from '../reading/use-spotlight'
 
 const words = shallowRef<Word[]>()
 const counts = shallowRef(new Map<string, number>())
-const status = ref('准备分析页面…')
+const status = ref(t('web.preparing'))
 const selected = ref('')
 const source = ref<WordSource>({ title: document.title, url: location.href, context: '' })
 const anchor = shallowRef<HTMLElement | Range>()
@@ -62,9 +64,10 @@ function selection(event: MouseEvent | KeyboardEvent) {
     const selection = window.getSelection()
     const text = selection?.toString().trim()
     if (!selection?.rangeCount || !text || text.length > 2000) return
-    const parent = selection.anchorNode?.parentElement
+    const range = selection.getRangeAt(0)
+    const parent = range.startContainer.parentElement
     if (parent?.closest('input,textarea,[contenteditable="true"]')) return
-    select(text, selectionAnchor(selection), contextAround(parent?.textContent ?? '', text))
+    select(text, selectionAnchor(selection), selectionContext(range, text))
 }
 function keyboard(event: KeyboardEvent) {
     if (event.key === 'Shift') selection(event)

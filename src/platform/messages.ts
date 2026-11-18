@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { browser } from 'wxt/browser'
 import type {
     Backup,
@@ -8,6 +9,7 @@ import type {
     PdfBookmark,
     ReadingProgress,
     TranslationInput,
+    TranslationResult,
     TranslationSettings,
     Word,
     WordSource,
@@ -16,13 +18,19 @@ import type {
 
 export interface Operations {
     words: { input: undefined; output: Word[] }
-    saveWord: { input: WordRating & { text: string; source?: WordSource; reviewed?: boolean }; output: null }
+    saveWord: {
+        input: WordRating & { text: string; source?: WordSource; reviewed?: boolean; meaning?: string }
+        output: null
+    }
+    encounterMeaning: { input: { text: string; source: WordSource }; output: string | undefined }
     wordDetails: {
         input: string[]
         output: { key: string; entry: DictionaryEntry | null; encounter?: Encounter }[]
     }
     lookup: { input: string; output: DictionaryEntry | null }
-    translate: { input: TranslationInput; output: string }
+    translationAvailable: { input: undefined; output: boolean }
+    openTranslationSettings: { input: undefined; output: null }
+    translate: { input: TranslationInput; output: TranslationResult }
     cancelTranslation: { input: string; output: null }
     settings: { input: undefined; output: TranslationSettings }
     saveSettings: { input: TranslationSettings; output: null }
@@ -61,9 +69,20 @@ export async function request<K extends keyof Operations>(
     requestId = newRequestId(),
 ): Promise<Operations[K]['output']> {
     const response = await browser.runtime.sendMessage({ channel: 'xgloss', operation, input, requestId })
-    if (!response || response.ok !== true)
-        throw new Error(response?.error ?? '扩展后台暂时不可用，请重新加载页面')
+    if (!response || response.ok !== true) throw new Error(response?.error ?? t('background.unavailable'))
     return response.value
+}
+
+export async function translateSelection(input: TranslationInput, signal: AbortSignal) {
+    signal.throwIfAborted()
+    const id = newRequestId()
+    const cancel = () => void request('cancelTranslation', id).catch(() => undefined)
+    signal.addEventListener('abort', cancel, { once: true })
+    try {
+        return await request('translate', input, id)
+    } finally {
+        signal.removeEventListener('abort', cancel)
+    }
 }
 
 export function onVocabularyChanged(callback: () => void): () => void {
