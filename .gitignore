@@ -1,0 +1,10 @@
+node_modules/
+.wxt/
+.output/
+.cache/
+/.idea/
+# Local design references contain browser and account information.
+/example/
+*.local
+.env*
+!.env.example

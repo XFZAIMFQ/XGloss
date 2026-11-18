@@ -1,0 +1,50 @@
+{
+    "name": "xgloss",
+    "description": "Local-first vocabulary learning for web pages and PDFs",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "dev": "wxt",
+        "build": "wxt build",
+        "zip": "wxt zip",
+        "postinstall": "node scripts/prepare-pdf.mjs && wxt prepare",
+        "typecheck": "vue-tsc --noEmit",
+        "lint": "eslint src scripts tests wxt.config.ts",
+        "format": "prettier --write src scripts tests *.json *.ts *.md docs",
+        "format:check": "prettier --check src scripts tests *.json *.ts *.md docs",
+        "test": "vitest run",
+        "dictionary:prepare": "node scripts/prepare-dictionary.mjs",
+        "pdf:prepare": "node scripts/prepare-pdf.mjs",
+        "test:browser": "node tests/browser-smoke.mjs"
+    },
+    "dependencies": {
+        "@fontsource/nunito": "^5.3.0",
+        "@lucide/vue": "^1.74.0",
+        "idb": "^8.0.3",
+        "pdfjs-dist": "6.5.438",
+        "vue": "3.5.45",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@playwright/test": "^1.65.1",
+        "@types/chrome": "^0.1.36",
+        "@types/node": "^24.10.0",
+        "@vue/compiler-sfc": "3.5.45",
+        "@wxt-dev/module-vue": "1.0.3",
+        "eslint": "^10.15.0",
+        "eslint-plugin-vue": "^10.5.0",
+        "fake-indexeddb": "^6.2.5",
+        "globals": "^17.14.0",
+        "prettier": "^3.7.0",
+        "typescript": "^5.9.3",
+        "typescript-eslint": "^8.48.0",
+        "vitest": "^5.1.0",
+        "vue-tsc": "^3.1.5",
+        "wxt": "0.21.5"
+    }
+}

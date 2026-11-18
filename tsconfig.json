@@ -1,0 +1,11 @@
+{
+    "extends": "./.wxt/tsconfig.json",
+    "compilerOptions": {
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "useUnknownInCatchVariables": true
+    },
+    "include": ["src/**/*.ts", "src/**/*.vue", "wxt.config.ts", ".wxt/**/*.d.ts"]
+}

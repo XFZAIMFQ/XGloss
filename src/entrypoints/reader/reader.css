@@ -1,0 +1,83 @@
+.reader-toolbar,
+.page-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    background: #fff;
+    border-bottom: 1px solid #e9e8ef;
+    flex-wrap: wrap;
+}
+.reader-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+.url-input {
+    flex: 1;
+    min-width: 200px;
+}
+.file-button {
+    padding: 8px 13px;
+    border: 1px solid #dedce6;
+    border-radius: 9px;
+    cursor: pointer;
+}
+.file-button input {
+    display: none;
+}
+.document-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 120px;
+}
+.pdf-scroll {
+    overflow: auto;
+    padding: 28px;
+    min-height: 70vh;
+}
+.pdf-page {
+    --scale-round-x: 1px;
+    --scale-round-y: 1px;
+    position: relative;
+    margin: 0 auto;
+    background: #fff;
+    box-shadow: 0 5px 25px #28223c15;
+}
+.pdf-page canvas {
+    display: block;
+}
+.reader-welcome {
+    max-width: 700px;
+    margin: 90px auto 0;
+    padding: 24px;
+    text-align: center;
+}
+.reader-error {
+    margin: 18px 24px;
+}
+::highlight(xgloss-pdf-unknown) {
+    background-color: #9dcdf077;
+}
+::highlight(xgloss-pdf-learning) {
+    background-color: #ffc46d88;
+}
+
+.pdf-scroll {
+    background: #edecf1;
+}
+.page-toolbar {
+    font-size: 13px;
+}
+.reader-toolbar .brand {
+    color: #88ac06;
+}
+.reader-toolbar a:last-child {
+    color: var(--muted);
+    font-size: 13px;
+}
+.file-button {
+    border-radius: 12px;
+}
