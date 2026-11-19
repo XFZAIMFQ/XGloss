@@ -58,7 +58,7 @@ const server = createServer((request, response) => {
             const payload = JSON.parse(data)
             assert.equal(payload.model, 'smoke-model')
             const input = JSON.parse(payload.messages[1].content)
-            translationInputs.push(input)
+            translationInputs.push({ ...input, system: payload.messages[0].content })
             if (input.selectedText === 'package') {
                 response.writeHead(503).end()
                 return
@@ -146,6 +146,12 @@ try {
     await options.getByRole('button', { name: '测试语境翻译' }).click()
     await options.getByText('寄存器 / 登记', { exact: true }).waitFor()
     assert.equal(translationRequests, 1, 'Identical translation should use the local cache')
+    await options.getByRole('combobox', { name: '默认释义' }).click()
+    await options.getByRole('option', { name: '详细 (词性, 音标和原句)' }).click()
+    await options.getByText('词卡显示偏好已保存', { exact: true }).waitFor()
+    await options.getByRole('combobox', { name: '默认释义' }).click()
+    await options.getByRole('option', { name: '简洁' }).click()
+    await options.getByText('词卡显示偏好已保存', { exact: true }).waitFor()
     const concurrent = await options.evaluate(async () => {
         const translate = () =>
             chrome.runtime.sendMessage({
@@ -282,6 +288,59 @@ try {
     await article.getByRole('button', { name: 'register ×2000' }).click()
     await card.getByRole('button', { name: '登记', exact: true, pressed: true }).waitFor()
     assert.equal(registerRequests(), 1)
+    await card.getByRole('button', { name: '翻译方向', exact: true }).click()
+    await card.getByRole('combobox', { name: '目标语言', exact: true }).click()
+    const selectStyleMetrics = await article.evaluate(() => {
+        const shadow = document.querySelector('#xgloss-root')?.shadowRoot
+        const menu = shadow?.querySelector('.shadcn-select-menu')
+        const trigger = shadow?.querySelector('.shadcn-select-trigger')
+        if (!menu || !trigger) return null
+        return {
+            position: getComputedStyle(menu).position,
+            triggerHeight: trigger.getBoundingClientRect().height,
+            triggerWidth: trigger.getBoundingClientRect().width,
+        }
+    })
+    assert.ok(selectStyleMetrics, 'ShadcnSelect menu and trigger should render inside WordCard Shadow DOM')
+    assert.equal(selectStyleMetrics.position, 'absolute')
+    assert.ok(selectStyleMetrics.triggerHeight <= 30 && selectStyleMetrics.triggerWidth >= 180)
+    const cardBox = await article.locator('.floating-card').boundingBox()
+    if (cardBox) {
+        await article.screenshot({
+            path: resolve(directory, 'word-card-lang-open.png'),
+            clip: {
+                x: Math.max(0, Math.floor(cardBox.x - 16)),
+                y: Math.max(0, Math.floor(cardBox.y - 40)),
+                width: Math.min(
+                    1440 - Math.max(0, Math.floor(cardBox.x - 16)),
+                    Math.ceil(cardBox.width + 32),
+                ),
+                height: Math.min(
+                    1000 - Math.max(0, Math.floor(cardBox.y - 40)),
+                    Math.ceil(cardBox.height + 280),
+                ),
+            },
+        })
+    }
+    await card.getByRole('option', { name: '英语', exact: true }).click()
+    await article.waitForFunction(() =>
+        document
+            .querySelector('#xgloss-root')
+            ?.shadowRoot?.querySelector('.lang-capsule-button')
+            ?.textContent?.includes('EN'),
+    )
+    assert.ok(translationInputs.at(-1)?.system.includes('Write in English.'))
+    const globalLanguages = await options.evaluate(() =>
+        chrome.runtime.sendMessage({
+            channel: 'xgloss',
+            operation: 'translationLanguages',
+            requestId: crypto.randomUUID(),
+        }),
+    )
+    assert.deepEqual(globalLanguages.value, { sourceLanguage: 'auto', targetLanguage: '简体中文' })
+    await article.keyboard.press('Escape')
+    await card.getByRole('dialog', { name: '翻译方向' }).waitFor({ state: 'detached' })
+    await card.waitFor({ state: 'visible' })
     await article.keyboard.press('Escape')
     await recall.click()
     await readingPanel.getByRole('button', { name: '回想模式', pressed: false }).waitFor()
@@ -388,12 +447,49 @@ try {
                         input: { tabId: 1, site: location.hostname, enabled: false },
                         requestId: crypto.randomUUID(),
                     })
-                    return { settings: settings.ok, siteAnalysis: attemptedChange.ok }
+                    const attemptedTrigger = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'setSelectionTrigger',
+                        input: 'off',
+                        requestId: crypto.randomUUID(),
+                    })
+                    const attemptedLangs = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'setTranslationLanguages',
+                        input: { sourceLanguage: 'ja', targetLanguage: 'English' },
+                        requestId: crypto.randomUUID(),
+                    })
+                    const attemptedActive = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'activeCollection',
+                        requestId: crypto.randomUUID(),
+                    })
+                    const attemptedSetActive = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'setActiveCollection',
+                        input: 'en',
+                        requestId: crypto.randomUUID(),
+                    })
+                    return {
+                        settings: settings.ok,
+                        siteAnalysis: attemptedChange.ok,
+                        setSelectionTrigger: attemptedTrigger.ok,
+                        setTranslationLanguages: attemptedLangs.ok,
+                        activeCollection: attemptedActive.ok,
+                        setActiveCollection: attemptedSetActive.ok,
+                    }
                 },
             }),
         articleTab,
     )
-    assert.deepEqual(accessChecks[0].result, { settings: false, siteAnalysis: false })
+    assert.deepEqual(accessChecks[0].result, {
+        settings: false,
+        siteAnalysis: false,
+        setSelectionTrigger: false,
+        setTranslationLanguages: false,
+        activeCollection: false,
+        setActiveCollection: false,
+    })
     await article.evaluate(() => document.querySelector('main').firstElementChild.remove())
     await article.waitForFunction(
         () =>
@@ -467,8 +563,8 @@ try {
     await library.getByRole('button', { name: '打开词库 - 阅读收藏' }).click()
     assert.ok(
         await library.locator('.library-toolbar').evaluate((toolbar) => {
-            const controls = [...toolbar.querySelectorAll('select, input')]
-            return controls[0]?.tagName === 'SELECT' && controls[1]?.tagName === 'INPUT'
+            const controls = [...toolbar.querySelectorAll('button[role="combobox"], input')]
+            return controls[0]?.getAttribute('role') === 'combobox' && controls[1]?.tagName === 'INPUT'
         }),
         'Category filter must be placed to the left of the search input',
     )
@@ -502,6 +598,15 @@ try {
     await options.screenshot({ path: resolve(directory, 'settings.png'), fullPage: true })
     await library.getByRole('link', { name: '复习训练', exact: true }).click()
     await library.getByRole('heading', { name: '复习训练', exact: true }).waitFor()
+    const libFilterBox = await library.getByRole('combobox', { name: '词库' }).boundingBox()
+    const sizeFilterBox = await library.getByRole('combobox', { name: '每次词数' }).boundingBox()
+    assert.ok(
+        libFilterBox &&
+            sizeFilterBox &&
+            Math.abs(libFilterBox.y - sizeFilterBox.y) < 1 &&
+            Math.abs(libFilterBox.height - sizeFilterBox.height) < 1,
+        'Review filter dropdowns must align horizontally and have matching heights',
+    )
     await library.screenshot({ path: resolve(directory, 'review.png'), fullPage: true })
     await library.locator('.review-mode').first().getByRole('button', { name: '开始', exact: true }).click()
     await library.getByRole('button', { name: '查看释义', exact: true }).click()
@@ -552,6 +657,89 @@ try {
         'Narrow layouts must not overflow horizontally',
     )
     await library.screenshot({ path: resolve(directory, 'statistics-mobile.png'), fullPage: true })
+
+    const popup = await context.newPage()
+    await popup.goto(`chrome-extension://${id}/popup.html`)
+    await popup.getByRole('radio', { name: '自动', checked: true }).waitFor()
+    await popup
+        .getByRole('combobox', { name: '当前词库', disabled: false })
+        .filter({ hasText: /N1 核心词库/ })
+        .waitFor()
+    await popup.locator('.popup').screenshot({ path: resolve(directory, 'popup.png') })
+    await popup.getByRole('combobox', { name: '当前词库' }).click()
+    await popup.getByRole('option', { name: /阅读收藏/ }).click()
+    await popup
+        .getByRole('combobox', { name: '原语言', disabled: false })
+        .filter({ hasText: '英语' })
+        .waitFor()
+    await popup.getByRole('combobox', { name: '当前词库' }).click()
+    await popup.getByRole('option', { name: /N1 核心词库/ }).click()
+    await popup
+        .getByRole('combobox', { name: '原语言', disabled: false })
+        .filter({ hasText: '日语' })
+        .waitFor()
+    await popup.getByRole('combobox', { name: '原语言' }).click()
+    await popup.getByRole('option', { name: '英语' }).click()
+    await popup
+        .getByRole('combobox', { name: '原语言', disabled: false })
+        .filter({ hasText: '英语' })
+        .waitFor()
+    assert.match(await popup.getByRole('combobox', { name: '当前词库' }).textContent(), /N1 核心词库/)
+    await popup.getByRole('combobox', { name: '当前词库' }).click()
+    await popup.getByRole('option', { name: /阅读收藏/ }).click()
+    await popup
+        .getByRole('combobox', { name: '当前词库', disabled: false })
+        .filter({ hasText: /阅读收藏/ })
+        .waitFor()
+    await popup.getByRole('combobox', { name: '原语言' }).click()
+    await popup.getByRole('option', { name: '自动检测' }).click()
+    await popup
+        .getByRole('combobox', { name: '原语言', disabled: false })
+        .filter({ hasText: '自动检测' })
+        .waitFor()
+
+    await popup.getByRole('radio', { name: '图标' }).click()
+    await popup.getByRole('radio', { name: '图标', checked: true, disabled: false }).waitFor()
+    await article.bringToFront()
+    await article.evaluate(() => window.scrollTo(0, 0))
+    if (await readingPanel.isVisible()) await readingPanel.getByRole('button', { name: '收起面板' }).click()
+    await article.waitForTimeout(80)
+    const selectInlineWord = () =>
+        article.locator('#inline-register').evaluate((element) => {
+            const range = document.createRange()
+            range.selectNodeContents(element)
+            const selection = window.getSelection()
+            selection.removeAllRanges()
+            selection.addRange(range)
+            element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
+        })
+    await selectInlineWord()
+    const triggerIcon = article.getByRole('button', { name: '用 XGloss 翻译选中内容' })
+    await triggerIcon.waitFor()
+    assert.equal(await article.locator('.word-card').count(), 0)
+    await triggerIcon.click()
+    await card.locator('.meaning-option').first().waitFor()
+    await article.keyboard.press('Escape')
+    await card.waitFor({ state: 'detached' })
+
+    await popup.bringToFront()
+    await popup.getByRole('radio', { name: '关闭' }).click()
+    await popup.getByRole('radio', { name: '关闭', checked: true, disabled: false }).waitFor()
+    await article.bringToFront()
+    await article.waitForTimeout(80)
+    await selectInlineWord()
+    await article.waitForTimeout(80)
+    assert.equal(await triggerIcon.count(), 0)
+    assert.equal(await article.locator('.word-card').count(), 0)
+    await badge.click()
+    await readingPanel.getByRole('button', { name: /^hardware ×/ }).click()
+    await card.locator('.meaning-option').first().waitFor()
+    await article.keyboard.press('Escape')
+
+    await popup.bringToFront()
+    await popup.getByRole('radio', { name: '自动' }).click()
+    await popup.getByRole('radio', { name: '自动', checked: true, disabled: false }).waitFor()
+    await popup.close()
 
     const reader = await context.newPage()
     await reader.goto(`chrome-extension://${id}/reader.html`)

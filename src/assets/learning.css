@@ -214,31 +214,25 @@
     padding: 16px 20px;
 }
 
-.review-filters label,
-.review-filter-group > span {
-    display: block;
+.review-filter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.review-filter-label {
     color: var(--muted);
     font-size: 12px;
     font-weight: 500;
-    margin-bottom: 6px;
+    line-height: 1.25;
 }
 
 .review-filter-group {
-    min-width: 220px;
+    width: 220px;
 }
 
 .review-limit {
-    min-width: 120px;
-}
-
-.review-limit .select-wrap {
-    margin-top: 6px;
-    width: 100%;
-}
-
-.review-limit select,
-.review-filter-group select {
-    width: 100%;
+    width: 120px;
 }
 
 .review-meta-count {

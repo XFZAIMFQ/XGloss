@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CollectionLanguage } from '../domain/models'
+import type { FlagCode } from '../domain/collections'
 
 const props = withDefaults(
     defineProps<{
-        language: CollectionLanguage
+        language: FlagCode
         size?: number
     }>(),
     { size: 18 },
@@ -73,6 +73,19 @@ const height = computed(() => Math.round(props.size * 0.72))
             <rect width="60" height="13.4" y="13.3" fill="#0039a6" />
             <rect width="60" height="13.4" y="26.6" fill="#d52b1e" />
         </template>
+        <template v-else-if="language === 'cn'">
+            <rect width="60" height="40" fill="#de2910" />
+            <polygon
+                points="12,5.5 13.7,10.6 19,10.6 14.7,13.7 16.3,18.8 12,15.7 7.7,18.8 9.3,13.7 5,10.6 10.3,10.6"
+                fill="#ffde00"
+            />
+            <g fill="#ffde00">
+                <circle cx="23" cy="6" r="1.6" />
+                <circle cx="26.5" cy="10.5" r="1.6" />
+                <circle cx="26.5" cy="16" r="1.6" />
+                <circle cx="23" cy="20.5" r="1.6" />
+            </g>
+        </template>
         <template v-else>
             <rect width="20" height="40" x="0" fill="#009246" />
             <rect width="20" height="40" x="20" fill="#ffffff" />
@@ -80,12 +93,3 @@ const height = computed(() => Math.round(props.size * 0.72))
         </template>
     </svg>
 </template>
-
-<style scoped>
-.language-flag {
-    display: block;
-    border-radius: 2px;
-    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
-    flex-shrink: 0;
-}
-</style>

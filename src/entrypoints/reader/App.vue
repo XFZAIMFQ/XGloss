@@ -11,12 +11,14 @@ import {
     errorMessage,
     type PdfBookmark,
     type ReadingProgress,
+    type SelectionTrigger,
     type Word,
     type WordSource,
 } from '../../domain/models'
-import { onVocabularyChanged, request } from '../../platform/messages'
+import { onReadingChanged, onVocabularyChanged, request } from '../../platform/messages'
 import ReadingPanel from '../../components/ReadingPanel.vue'
 import FloatingWordCard from '../../components/FloatingWordCard.vue'
+import SelectionTriggerIcon from '../../components/SelectionTriggerIcon.vue'
 import BrandLogo from '../../components/BrandLogo.vue'
 
 const container = ref<HTMLDivElement>()
@@ -45,6 +47,13 @@ const bookmarked = computed(() => bookmarks.value.some((bookmark) => bookmark.pa
 const selected = ref('')
 const anchor = shallowRef<HTMLElement | Range>()
 const anchorBoundary = computed(() => (anchor.value instanceof Range ? container.value : undefined))
+const selectionTrigger = ref<SelectionTrigger>('auto')
+const pendingSelection = shallowRef<{
+    text: string
+    anchor: Range
+    page: number
+    fallback: string
+}>()
 const selectedSource = ref<WordSource>({ title: '', url: '', context: '' })
 const words = shallowRef<Word[]>()
 const selectedRating = computed(() => words.value?.find((word) => word.key === normalizeWord(selected.value)))
@@ -52,6 +61,7 @@ const counts = shallowRef(new Map<string, number>())
 const panelVisible = ref(true)
 let session: PdfSession | undefined
 let unsubscribe: (() => void) | undefined
+let unsubscribeReading: (() => void) | undefined
 let opening = 0
 let selecting = 0
 let refreshing = 0
@@ -280,7 +290,18 @@ async function sourceForWord(
     return { ...source, context: (context || fallback).slice(0, 3000) }
 }
 
+async function loadSelectionTrigger() {
+    try {
+        const next = await request('selectionTrigger')
+        selectionTrigger.value = next
+        if (next === 'off') pendingSelection.value = undefined
+    } catch {
+        selectionTrigger.value = 'auto'
+    }
+}
+
 async function select(text: string, position: HTMLElement | Range, number?: number, fallback = '') {
+    pendingSelection.value = undefined
     const current = ++selecting
     try {
         const source = await sourceForWord(text, number, fallback)
@@ -293,7 +314,14 @@ async function select(text: string, position: HTMLElement | Range, number?: numb
     }
 }
 
+function openPendingSelection() {
+    const pending = pendingSelection.value
+    if (!pending) return
+    void select(pending.text, pending.anchor, pending.page, pending.fallback)
+}
+
 function selection() {
+    if (selectionTrigger.value === 'off') return
     const selection = window.getSelection()
     const text = selection?.toString().trim()
     if (!selection?.rangeCount || !text || text.length > 2000) return
@@ -305,7 +333,14 @@ function selection() {
     if (!sourcePage || !pages.value?.contains(sourcePage)) return
     const number = Number(sourcePage.dataset.pageNumber)
     if (!Number.isInteger(number) || number < 1 || number > pageCount.value) return
-    void select(text, selectionAnchor(selection), number, selectionContext(range, text, layer, ' '))
+    const pos = selectionAnchor(selection)
+    const context = selectionContext(range, text, layer, ' ')
+    if (selectionTrigger.value === 'icon') {
+        closeWordCard()
+        pendingSelection.value = { text, anchor: pos, page: number, fallback: context }
+        return
+    }
+    void select(text, pos, number, context)
 }
 
 function turn(next: number | string) {
@@ -326,6 +361,7 @@ function changeLayout() {
 
 function closeWordCard() {
     selecting++
+    pendingSelection.value = undefined
     selected.value = ''
     anchor.value = undefined
 }
@@ -336,7 +372,11 @@ onMounted(() => {
         session.highlight(words.value ?? [], highlighting.value)
     }
     void refresh()
+    void loadSelectionTrigger()
     unsubscribe = onVocabularyChanged(() => void refresh())
+    unsubscribeReading = onReadingChanged((change) => {
+        if (change === 'selectionTrigger') void loadSelectionTrigger()
+    })
     window.addEventListener('pagehide', flushProgress)
     const parsed = URL.canParse(url.value) ? new URL(url.value) : null
     if (parsed && ['http:', 'https:'].includes(parsed.protocol)) {
@@ -356,6 +396,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('pagehide', flushProgress)
     networkController?.abort()
     unsubscribe?.()
+    unsubscribeReading?.()
     void session?.destroy().catch(() => undefined)
     session = undefined
 })
@@ -526,6 +567,13 @@ onBeforeUnmount(() => {
                 @select="select"
             />
         </div>
+        <SelectionTriggerIcon
+            v-if="pendingSelection"
+            :anchor="pendingSelection.anchor"
+            :boundary="container"
+            @open="openPendingSelection"
+            @close="pendingSelection = undefined"
+        />
         <FloatingWordCard
             v-if="selected && anchor"
             :text="selected"

@@ -37,10 +37,3 @@ const dotId = `xgloss-dot-${id}`
         <circle cx="93" cy="93" r="9" :fill="`url(#${dotId})`" />
     </svg>
 </template>
-
-<style scoped>
-.brand-logo {
-    display: block;
-    flex-shrink: 0;
-}
-</style>

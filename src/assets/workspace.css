@@ -415,6 +415,11 @@ h3 {
     min-width: 136px;
 }
 
+.toolbar-controls .shadcn-select {
+    width: auto;
+    min-width: 144px;
+}
+
 /* Collections Grid */
 .collections-grid {
     display: grid;
@@ -837,12 +842,12 @@ h3 {
     font-weight: 600;
 }
 
-label.field {
+.field {
     display: block;
     margin: 14px 0;
 }
 
-label.field > span {
+.field > span {
     display: block;
     margin-bottom: 6px;
     font-size: 12px;
@@ -850,7 +855,7 @@ label.field > span {
     color: var(--ink);
 }
 
-label.field small {
+.field small {
     display: block;
     margin-top: 5px;
     font-size: 12px;
@@ -946,7 +951,8 @@ label.field small {
     flex-shrink: 0;
 }
 
-.settings-panel .select-wrap {
+.settings-panel .select-wrap,
+.settings-panel .shadcn-select {
     width: 100%;
     max-width: 340px;
 }

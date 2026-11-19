@@ -112,7 +112,7 @@ function close() {
 }
 
 function keyboard(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return
+    if (event.key !== 'Escape' || event.defaultPrevented) return
     event.stopPropagation()
     close()
 }

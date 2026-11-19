@@ -14,27 +14,38 @@ import {
     updateWord,
 } from '../data/vocabulary-repository'
 import {
+    loadActiveCollectionId,
     loadDefinitionMode,
     loadRecall,
+    loadSelectionTrigger,
     loadSettings,
     loadSiteReading,
+    loadSourceLanguage,
     loadSpotlight,
+    loadTranslationLanguages,
+    saveActiveCollectionId,
     saveDefinitionMode,
     saveRecall,
+    saveSelectionTrigger,
     saveSettings,
     saveSiteReading,
+    saveSourceLanguage,
     saveSpotlight,
+    saveTranslationLanguages,
 } from '../data/settings'
 import { webHostname } from '../platform/web-site'
 import { summarizeActivity } from '../domain/activity'
+import { activeCollectionId } from '../domain/collections'
 import {
     collectionIdSchema,
     collectionLanguageSchema,
     errorMessage,
     pdfBookmarkSchema,
     savedMeaningSchema,
+    selectionTriggerSchema,
     sourceSchema,
     translationInputSchema,
+    translationLanguagesSchema,
     type TranslationResult,
     wordRatingSchema,
 } from '../domain/models'
@@ -76,6 +87,10 @@ const privileged = new Set([
     'bookmarks',
     'setBookmark',
     'setSiteAnalysis',
+    'setSelectionTrigger',
+    'setTranslationLanguages',
+    'activeCollection',
+    'setActiveCollection',
 ])
 
 function activityRange(input: unknown, maxDays: number) {
@@ -162,6 +177,19 @@ async function execute(
             await saveRecall(z.boolean().parse(message.input))
             await notifyChanged({ event: 'candidateRecallChanged' })
             return null
+        case 'selectionTrigger':
+            return loadSelectionTrigger()
+        case 'setSelectionTrigger':
+            await saveSelectionTrigger(selectionTriggerSchema.parse(message.input))
+            await notifyChanged({ event: 'selectionTriggerChanged' })
+            return null
+        case 'translationLanguages':
+            return loadTranslationLanguages()
+        case 'setTranslationLanguages': {
+            const updated = await saveTranslationLanguages(translationLanguagesSchema.parse(message.input))
+            await notifyChanged({ event: 'translationLanguagesChanged' })
+            return updated
+        }
         case 'translationAvailable': {
             const settings = await loadSettings()
             return Boolean(settings.baseUrl.trim() && settings.model.trim())
@@ -185,6 +213,25 @@ async function execute(
             return db.getAll('words')
         case 'collections':
             return listCollections()
+        case 'activeCollection': {
+            const [storedId, collections] = await Promise.all([loadActiveCollectionId(), listCollections()])
+            return storedId && collections.some((item) => item.id === storedId)
+                ? storedId
+                : activeCollectionId(collections)
+        }
+        case 'setActiveCollection': {
+            const id = collectionIdSchema.parse(message.input)
+            const collections = await listCollections()
+            const target = collections.find((item) => item.id === id)
+            if (!target) throw new Error(t('library.collectionNotFound'))
+            await Promise.all([saveActiveCollectionId(target.id), saveSourceLanguage(target.language)])
+            const languages = await loadTranslationLanguages()
+            await Promise.all([
+                notifyChanged({ event: 'activeCollectionChanged' }),
+                notifyChanged({ event: 'translationLanguagesChanged' }),
+            ])
+            return { activeCollectionId: target.id, languages }
+        }
         case 'saveCollection': {
             const input = z
                 .object({
@@ -216,7 +263,12 @@ async function execute(
                 .parse(message.input)
             if (input.state !== 'learning' && input.level !== undefined)
                 throw new Error(t('rating.invalidLevel'))
-            await saveWord(input.text, input.state, input.source, { ...input, id: message.requestId })
+            const defaultCollectionId = input.collectionId ? undefined : await loadActiveCollectionId()
+            await saveWord(input.text, input.state, input.source, {
+                ...input,
+                id: message.requestId,
+                defaultCollectionId,
+            })
             await notifyChanged({ event: 'vocabularyChanged' })
             return null
         }
@@ -266,6 +318,7 @@ async function execute(
             return loadSettings()
         case 'saveSettings':
             await saveSettings(message.input)
+            await notifyChanged({ event: 'translationLanguagesChanged' })
             return null
         case 'definitionMode':
             return loadDefinitionMode()
@@ -337,13 +390,18 @@ async function translate(requestKey: string, input: z.infer<typeof translationIn
     const controller = new AbortController()
     controllers.set(requestKey, controller)
     try {
-        const settings = await loadSettings()
+        const [settings, defaultSource] = await Promise.all([loadSettings(), loadSourceLanguage()])
         if (!settings.baseUrl.trim() || !settings.model.trim()) throw new Error(t('translation.configure'))
         const endpoint = completionEndpoint(settings.baseUrl)
         if (!(await browser.permissions.contains({ origins: [`${endpoint.origin}/*`] }))) {
             throw new Error(t('translation.permission'))
         }
-        const key = await translationCacheKey(settings, input)
+        const effectiveInput: z.infer<typeof translationInputSchema> = {
+            ...input,
+            sourceLanguage: input.sourceLanguage ?? defaultSource,
+            targetLanguage: input.targetLanguage ?? settings.targetLanguage,
+        }
+        const key = await translationCacheKey(settings, effectiveInput)
         const db = await database
         const cached = await db.get('translations', key)
         controller.signal.throwIfAborted()
@@ -352,7 +410,7 @@ async function translate(requestKey: string, input: z.infer<typeof translationIn
         if (!ongoing) {
             if (ongoingTranslations.size >= 6) throw new Error(t('translation.busy'))
             const upstream = new AbortController()
-            const result = requestTranslation(settings, input, fetch, upstream.signal)
+            const result = requestTranslation(settings, effectiveInput, fetch, upstream.signal)
                 .then(async (result) => {
                     await db
                         .put('translations', { key, result, createdAt: Date.now() })

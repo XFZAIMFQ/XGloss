@@ -102,10 +102,25 @@ describe('OpenAI-compatible translation', () => {
         const fetcher = vi.fn().mockResolvedValue(new Response('test-key not json'))
         await expect(requestTranslation(settings, word, fetcher)).rejects.toThrow('无效的 JSON')
     })
-    it('isolates caches by context and model configuration', async () => {
+    it('isolates caches by context, model configuration, and language direction', async () => {
         const key = await translationCacheKey(settings, word)
         expect(key).toHaveLength(64)
         expect(await translationCacheKey(settings, { ...word, context: 'account' })).not.toBe(key)
         expect(await translationCacheKey({ ...settings, model: 'other' }, word)).not.toBe(key)
+        expect(await translationCacheKey(settings, { ...word, sourceLanguage: 'en' })).not.toBe(key)
+        expect(await translationCacheKey(settings, { ...word, targetLanguage: 'English' })).not.toBe(key)
+        expect(
+            await translationCacheKey(settings, { ...word, targetLanguage: settings.targetLanguage }),
+        ).toBe(key)
+    })
+    it('includes explicit source and target languages in the system prompt only when specified', async () => {
+        const fetcher = responseWith(JSON.stringify(meanings))
+        await requestTranslation(
+            settings,
+            { ...word, sourceLanguage: 'ja', targetLanguage: 'English' },
+            fetcher,
+        )
+        const body = JSON.parse(fetcher.mock.calls[0]![1].body)
+        expect(body.messages[0].content).toContain('Translate from Japanese. Write in English.')
     })
 })

@@ -1,10 +1,32 @@
 import { t } from '../i18n'
-import { defaultCollectionId, type CollectionLanguage, type VocabularyCollection, type Word } from './models'
+import {
+    defaultCollectionId,
+    type CollectionLanguage,
+    type SourceLanguage,
+    type VocabularyCollection,
+    type Word,
+} from './models'
+
+export type FlagCode = CollectionLanguage | 'cn'
 
 export interface LanguageOption {
     code: CollectionLanguage
     flagEmoji: string
     nativeName: string
+    label: string
+}
+
+export interface SourceLanguageOption {
+    code: SourceLanguage
+    flag: FlagCode | null
+    shortLabel: string
+    label: string
+}
+
+export interface TargetLanguageOption {
+    value: string
+    flag: FlagCode
+    shortLabel: string
     label: string
 }
 
@@ -19,8 +41,71 @@ export const languageOptions: readonly LanguageOption[] = [
     { code: 'it', flagEmoji: '🇮🇹', nativeName: 'Italiano', label: t('language.it') },
 ]
 
+export const sourceLanguageOptions: readonly SourceLanguageOption[] = [
+    { code: 'auto', flag: null, shortLabel: t('language.autoShort'), label: t('language.auto') },
+    ...languageOptions.map((option) => ({
+        code: option.code,
+        flag: option.code as FlagCode,
+        shortLabel: option.code.toUpperCase(),
+        label: option.label,
+    })),
+]
+
+export const targetLanguageOptions: readonly TargetLanguageOption[] = [
+    {
+        value: t('common.simplifiedChinese'),
+        flag: 'cn',
+        shortLabel: t('language.zhShort'),
+        label: t('common.simplifiedChinese'),
+    },
+    {
+        value: t('language.zhTW'),
+        flag: 'cn',
+        shortLabel: t('language.zhTWShort'),
+        label: t('language.zhTW'),
+    },
+    { value: 'English', flag: 'en', shortLabel: 'EN', label: t('language.en') },
+    { value: '日本語', flag: 'ja', shortLabel: 'JA', label: t('language.ja') },
+    { value: '한국어', flag: 'ko', shortLabel: 'KO', label: t('language.ko') },
+    { value: 'Deutsch', flag: 'de', shortLabel: 'DE', label: t('language.de') },
+    { value: 'Français', flag: 'fr', shortLabel: 'FR', label: t('language.fr') },
+    { value: 'Español', flag: 'es', shortLabel: 'ES', label: t('language.es') },
+]
+
 export function languageInfo(code: CollectionLanguage): LanguageOption {
     return languageOptions.find((option) => option.code === code) ?? languageOptions[0]!
+}
+
+export function sourceLanguageInfo(code: SourceLanguage): SourceLanguageOption {
+    return sourceLanguageOptions.find((option) => option.code === code) ?? sourceLanguageOptions[0]!
+}
+
+export function sourceLanguageShort(code: SourceLanguage): string {
+    return sourceLanguageInfo(code).shortLabel
+}
+
+export function targetLanguageOption(value: string): TargetLanguageOption | undefined {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) return targetLanguageOptions[0]
+    return targetLanguageOptions.find(
+        (option) => option.value.toLowerCase() === normalized || option.label.toLowerCase() === normalized,
+    )
+}
+
+export function targetLanguageShort(value: string): string {
+    const matched = targetLanguageOption(value)
+    if (matched) return matched.shortLabel
+    const trimmed = value.trim()
+    if (!trimmed) return t('language.zhShort')
+    if (/中文/u.test(trimmed)) return t('language.zhShort')
+    return trimmed.slice(0, 4)
+}
+
+export function targetLanguageFlag(value: string): FlagCode | undefined {
+    const matched = targetLanguageOption(value)
+    if (matched) return matched.flag
+    if (/中文/u.test(value)) return 'cn'
+    return undefined
 }
 
 export function defaultCollection(now = 0): VocabularyCollection {

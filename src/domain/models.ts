@@ -85,9 +85,21 @@ export const defaultTranslationSettings: TranslationSettings = {
     targetLanguage: t('common.simplifiedChinese'),
     timeoutMs: 30_000,
 }
+export const selectionTriggerSchema = z.enum(['auto', 'icon', 'off'])
+export type SelectionTrigger = z.infer<typeof selectionTriggerSchema>
+export const sourceLanguages = ['auto', ...collectionLanguages] as const
+export const sourceLanguageSchema = z.enum(sourceLanguages)
+export type SourceLanguage = z.infer<typeof sourceLanguageSchema>
+export const translationLanguagesSchema = z.object({
+    sourceLanguage: sourceLanguageSchema,
+    targetLanguage: z.string().trim().min(1).max(100),
+})
+export type TranslationLanguages = z.infer<typeof translationLanguagesSchema>
 export const translationInputSchema = z.object({
     text: z.string().trim().min(1).max(2000),
     context: z.string().max(3000).default(''),
+    sourceLanguage: sourceLanguageSchema.optional(),
+    targetLanguage: z.string().trim().min(1).max(100).optional(),
 })
 export type TranslationInput = z.infer<typeof translationInputSchema>
 export const translationResultSchema = z.discriminatedUnion('kind', [

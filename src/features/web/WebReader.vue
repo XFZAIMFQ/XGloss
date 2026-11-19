@@ -3,9 +3,10 @@ import { t } from '../../i18n'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import FloatingWordCard from '../../components/FloatingWordCard.vue'
 import ReadingPanel from '../../components/ReadingPanel.vue'
+import SelectionTriggerIcon from '../../components/SelectionTriggerIcon.vue'
 import { normalizeWord } from '../../domain/vocabulary'
-import { errorMessage, type Word, type WordSource } from '../../domain/models'
-import { onVocabularyChanged, request } from '../../platform/messages'
+import { errorMessage, type SelectionTrigger, type Word, type WordSource } from '../../domain/models'
+import { onReadingChanged, onVocabularyChanged, request } from '../../platform/messages'
 import { PageAnalyzer } from './page-analyzer'
 import { selectionAnchor } from '../reading/selection-anchor'
 import { selectionContext } from '../reading/selection-context'
@@ -17,10 +18,13 @@ const status = ref(t('web.preparing'))
 const selected = ref('')
 const source = ref<WordSource>({ title: document.title, url: location.href, context: '' })
 const anchor = shallowRef<HTMLElement | Range>()
+const selectionTrigger = ref<SelectionTrigger>('auto')
+const pendingSelection = shallowRef<{ text: string; anchor: Range; context: string }>()
 const sourceId = ref(location.pathname + location.search)
 const rating = computed(() => words.value?.find((word) => word.key === normalizeWord(selected.value)))
 let analyzer: PageAnalyzer
 let unsubscribe: (() => void) | undefined
+let unsubscribeReading: (() => void) | undefined
 let refreshing = 0
 const { highlighting, setSpotlight } = useSpotlight((enabled) => analyzer?.setHighlight(enabled))
 
@@ -47,7 +51,17 @@ function sourceForWord(word: string): WordSource {
         context: analyzer?.contextForWord(word) ?? '',
     }
 }
+async function loadSelectionTrigger() {
+    try {
+        const next = await request('selectionTrigger')
+        selectionTrigger.value = next
+        if (next === 'off') pendingSelection.value = undefined
+    } catch {
+        selectionTrigger.value = 'auto'
+    }
+}
 function select(text: string, position: HTMLElement | Range, context = '') {
+    pendingSelection.value = undefined
     selected.value = text
     anchor.value = position
     source.value = {
@@ -56,23 +70,37 @@ function select(text: string, position: HTMLElement | Range, context = '') {
         context: (context || analyzer?.contextForWord(text) || '').slice(0, 3000),
     }
 }
+function openPendingSelection() {
+    const pending = pendingSelection.value
+    if (!pending) return
+    select(pending.text, pending.anchor, pending.context)
+}
 function selection(event: MouseEvent | KeyboardEvent) {
     if (
         event.composedPath().some((element) => element instanceof HTMLElement && element.id === 'xgloss-root')
     )
         return
+    if (selectionTrigger.value === 'off') return
     const selection = window.getSelection()
     const text = selection?.toString().trim()
     if (!selection?.rangeCount || !text || text.length > 2000) return
     const range = selection.getRangeAt(0)
     const parent = range.startContainer.parentElement
     if (parent?.closest('input,textarea,[contenteditable="true"]')) return
-    select(text, selectionAnchor(selection), selectionContext(range, text))
+    const pos = selectionAnchor(selection)
+    const context = selectionContext(range, text)
+    if (selectionTrigger.value === 'icon') {
+        closeWordCard()
+        pendingSelection.value = { text, anchor: pos, context }
+        return
+    }
+    select(text, pos, context)
 }
 function keyboard(event: KeyboardEvent) {
     if (event.key === 'Shift') selection(event)
 }
 function closeWordCard() {
+    pendingSelection.value = undefined
     selected.value = ''
     anchor.value = undefined
 }
@@ -90,7 +118,11 @@ onMounted(() => {
     analyzer.setHighlight(highlighting.value)
     analyzer.start()
     void refresh()
+    void loadSelectionTrigger()
     unsubscribe = onVocabularyChanged(() => void refresh())
+    unsubscribeReading = onReadingChanged((change) => {
+        if (change === 'selectionTrigger') void loadSelectionTrigger()
+    })
     document.addEventListener('mouseup', selection)
     document.addEventListener('keyup', keyboard)
 })
@@ -98,6 +130,7 @@ onBeforeUnmount(() => {
     refreshing++
     analyzer?.destroy()
     unsubscribe?.()
+    unsubscribeReading?.()
     document.removeEventListener('mouseup', selection)
     document.removeEventListener('keyup', keyboard)
 })
@@ -117,6 +150,12 @@ onBeforeUnmount(() => {
             @select="select"
         />
     </div>
+    <SelectionTriggerIcon
+        v-if="pendingSelection"
+        :anchor="pendingSelection.anchor"
+        @open="openPendingSelection"
+        @close="pendingSelection = undefined"
+    />
     <FloatingWordCard
         v-if="selected && anchor"
         :text="selected"

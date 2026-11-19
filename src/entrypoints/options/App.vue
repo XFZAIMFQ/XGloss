@@ -11,7 +11,8 @@ import {
 import { completionEndpoint, deepSeekPreset } from '../../services/openai-translation'
 import { request } from '../../platform/messages'
 import AppShell from '../../components/AppShell.vue'
-import { SlidersHorizontal, ChevronDown } from '@lucide/vue'
+import ShadcnSelect, { type SelectOption } from '../../components/ShadcnSelect.vue'
+import { SlidersHorizontal } from '@lucide/vue'
 
 const settings = reactive({ ...defaultTranslationSettings })
 const status = ref('')
@@ -21,6 +22,10 @@ const ready = ref(false)
 const definitionMode = ref<DefinitionMode>('simple')
 const savingMode = ref(false)
 const modeStatus = ref('')
+const definitionModeOptions: readonly SelectOption[] = [
+    { value: 'simple', label: t('settings.simple') },
+    { value: 'detailed', label: t('settings.detailed') },
+]
 
 onMounted(async () => {
     try {
@@ -34,18 +39,16 @@ onMounted(async () => {
     }
 })
 
-async function updateDefinitionMode(event: Event) {
-    const select = event.target as HTMLSelectElement
+async function updateDefinitionMode(nextValue: string) {
     savingMode.value = true
     modeStatus.value = ''
     error.value = ''
     try {
-        const mode = definitionModeSchema.parse(select.value)
+        const mode = definitionModeSchema.parse(nextValue)
         await request('saveDefinitionMode', mode)
         definitionMode.value = mode
         modeStatus.value = t('settings.modeSaved')
     } catch (reason) {
-        select.value = definitionMode.value
         error.value = errorMessage(reason)
     } finally {
         savingMode.value = false
@@ -167,16 +170,16 @@ async function test() {
             </form>
             <section class="panel settings-panel">
                 <h2>{{ t('settings.cardDisplay') }}</h2>
-                <label class="field">
+                <div class="field">
                     <span>{{ t('settings.defaultMode') }}</span>
-                    <div class="select-wrap">
-                        <select :value="definitionMode" :disabled="savingMode" @change="updateDefinitionMode">
-                            <option value="simple">{{ t('settings.simple') }}</option>
-                            <option value="detailed">{{ t('settings.detailed') }}</option>
-                        </select>
-                        <ChevronDown :size="14" class="select-chevron" />
-                    </div>
-                </label>
+                    <ShadcnSelect
+                        :model-value="definitionMode"
+                        :options="definitionModeOptions"
+                        :disabled="savingMode"
+                        :aria-label="t('settings.defaultMode')"
+                        @update:model-value="updateDefinitionMode"
+                    />
+                </div>
                 <p v-if="modeStatus" class="success" role="status">{{ modeStatus }}</p>
             </section>
         </div>

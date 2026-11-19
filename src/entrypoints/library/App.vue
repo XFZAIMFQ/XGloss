@@ -7,6 +7,7 @@ import LanguageFlag from '../../components/LanguageFlag.vue'
 import AppShell from '../../components/AppShell.vue'
 import VocabularyReview from '../../components/VocabularyReview.vue'
 import VocabularyStatistics from '../../components/VocabularyStatistics.vue'
+import ShadcnSelect, { type SelectOption } from '../../components/ShadcnSelect.vue'
 import {
     Plus,
     Search,
@@ -17,7 +18,6 @@ import {
     ArrowUpRight,
     Pin,
     Pencil,
-    ChevronDown,
     ChevronLeft,
     Trash2,
 } from '@lucide/vue'
@@ -42,6 +42,16 @@ const words = ref<Word[]>([])
 const collections = ref<VocabularyCollection[]>([])
 const query = ref('')
 const filter = ref('all')
+const filterOptions: readonly SelectOption[] = [
+    { value: 'all', label: t('library.allStates') },
+    { value: 'learning', label: t('common.learning') },
+    ...learningLevels.map((level) => ({
+        value: `level-${level}`,
+        label: t('rating.learningLevel', { level }),
+    })),
+    { value: 'known', label: t('common.known') },
+    { value: 'ignored', label: t('common.ignored') },
+]
 const tab = ref('library')
 const inCollection = ref(false)
 const activeCollection = ref(defaultCollectionId)
@@ -526,18 +536,11 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div v-else class="toolbar-controls">
-                    <div class="select-wrap">
-                        <select v-model="filter" :aria-label="t('library.filter')">
-                            <option value="all">{{ t('library.allStates') }}</option>
-                            <option value="learning">{{ t('common.learning') }}</option>
-                            <option v-for="level in learningLevels" :key="level" :value="`level-${level}`">
-                                {{ t('rating.learningLevel', { level }) }}
-                            </option>
-                            <option value="known">{{ t('common.known') }}</option>
-                            <option value="ignored">{{ t('common.ignored') }}</option>
-                        </select>
-                        <ChevronDown :size="14" class="select-chevron" />
-                    </div>
+                    <ShadcnSelect
+                        v-model="filter"
+                        :options="filterOptions"
+                        :aria-label="t('library.filter')"
+                    />
                     <div class="search-field">
                         <Search :size="15" />
                         <input

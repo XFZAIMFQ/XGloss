@@ -10,7 +10,19 @@ import {
 import { parseWordCsv } from '../src/domain/csv'
 import { dictionaryMeanings } from '../src/domain/definitions'
 import { activityStreaks, localDay, summarizeActivity } from '../src/domain/activity'
-import { activeCollectionId, sortCollections, wordCollectionId } from '../src/domain/collections'
+import {
+    activeCollectionId,
+    sortCollections,
+    sourceLanguageShort,
+    targetLanguageFlag,
+    targetLanguageShort,
+    wordCollectionId,
+} from '../src/domain/collections'
+import {
+    selectionTriggerSchema,
+    sourceLanguageSchema,
+    translationLanguagesSchema,
+} from '../src/domain/models'
 
 describe('vocabulary statistics', () => {
     it('normalizes casing and apostrophes while excluding identifiers', () => {
@@ -157,5 +169,25 @@ describe('collections domain helpers', () => {
     it('attaches an optional collectionId when parsing CSV', () => {
         const parsed = parseWordCsv('word,state\ncat,learning\n', 'ja')
         expect(parsed.words[0]?.collectionId).toBe('ja')
+    })
+    it('validates selection triggers and formats language pair labels', () => {
+        expect(selectionTriggerSchema.parse('auto')).toBe('auto')
+        expect(selectionTriggerSchema.parse('icon')).toBe('icon')
+        expect(selectionTriggerSchema.parse('off')).toBe('off')
+        expect(() => selectionTriggerSchema.parse('invalid')).toThrow()
+        expect(sourceLanguageSchema.parse('ja')).toBe('ja')
+        expect(
+            translationLanguagesSchema.parse({ sourceLanguage: 'en', targetLanguage: '简体中文' }),
+        ).toEqual({
+            sourceLanguage: 'en',
+            targetLanguage: '简体中文',
+        })
+        expect(sourceLanguageShort('auto')).toBe('自动')
+        expect(sourceLanguageShort('ja')).toBe('JA')
+        expect(targetLanguageShort('简体中文')).toBe('中')
+        expect(targetLanguageShort('English')).toBe('EN')
+        expect(targetLanguageShort('Português')).toBe('Port')
+        expect(targetLanguageFlag('简体中文')).toBe('cn')
+        expect(targetLanguageFlag('English')).toBe('en')
     })
 })

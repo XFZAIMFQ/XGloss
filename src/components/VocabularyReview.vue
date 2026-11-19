@@ -3,7 +3,8 @@ import { t } from '../i18n'
 import { dictionaryMeanings } from '../domain/definitions'
 import { wordCollectionId } from '../domain/collections'
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { ArrowRight, Play, Keyboard, Layers, Languages, Volume2, X, Check, ChevronDown } from '@lucide/vue'
+import { ArrowRight, Play, Keyboard, Layers, Languages, Volume2, X, Check } from '@lucide/vue'
+import ShadcnSelect, { type SelectOption } from './ShadcnSelect.vue'
 import type { VocabularyCollection, Word, WordState } from '../domain/models'
 import { errorMessage } from '../domain/models'
 import { request } from '../platform/messages'
@@ -24,6 +25,19 @@ const loading = ref(false)
 const rating = ref(false)
 let generation = 0
 const current = computed(() => deck.value[index.value])
+const collectionSelectOptions = computed<SelectOption[]>(() => [
+    { value: 'all', label: t('review.allCollections') },
+    ...(props.collections ?? []).map((item) => ({
+        value: item.id,
+        label: item.name,
+        flag: item.language,
+    })),
+])
+const limitSelectOptions: readonly SelectOption[] = [
+    { value: '10', label: '10' },
+    { value: '20', label: '20' },
+    { value: '50', label: '50' },
+]
 const available = computed(() =>
     props.words.filter(
         (word) =>
@@ -133,29 +147,23 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="panel review-filters">
-        <div class="review-filter-group">
-            <span>{{ t('review.libraryLabel') }}</span>
-            <div class="select-wrap" style="width: 100%">
-                <select v-model="selectedCollection" :aria-label="t('review.libraryLabel')">
-                    <option value="all">{{ t('review.allCollections') }}</option>
-                    <option v-for="item in collections" :key="item.id" :value="item.id">
-                        {{ item.name }}
-                    </option>
-                </select>
-                <ChevronDown :size="14" class="select-chevron" />
-            </div>
+        <div class="review-filter-item review-filter-group">
+            <span class="review-filter-label">{{ t('review.libraryLabel') }}</span>
+            <ShadcnSelect
+                v-model="selectedCollection"
+                :options="collectionSelectOptions"
+                :aria-label="t('review.libraryLabel')"
+            />
         </div>
-        <label class="review-limit" for="review-limit">
-            {{ t('review.sessionSize') }}
-            <div class="select-wrap">
-                <select id="review-limit" v-model.number="limit">
-                    <option :value="10">10</option>
-                    <option :value="20">20</option>
-                    <option :value="50">50</option>
-                </select>
-                <ChevronDown :size="14" class="select-chevron" />
-            </div>
-        </label>
+        <div class="review-filter-item review-limit">
+            <span class="review-filter-label">{{ t('review.sessionSize') }}</span>
+            <ShadcnSelect
+                :model-value="String(limit)"
+                :options="limitSelectOptions"
+                :aria-label="t('review.sessionSize')"
+                @update:model-value="limit = Number($event)"
+            />
+        </div>
         <span class="review-meta-count">{{ t('review.learningCount', { count: available.length }) }}</span>
     </div>
     <p v-if="error" role="alert" class="error">{{ error }}</p>

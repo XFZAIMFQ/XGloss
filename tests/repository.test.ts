@@ -149,6 +149,16 @@ describe('persistent vocabulary', () => {
         const restored = await listCollections()
         expect(restored.find((item) => item.id === japanese.id)?.name).toBe('N1 Core')
     })
+    it('routes new words to preferred defaultCollectionId while keeping existing word collections intact', async () => {
+        await listCollections()
+        const japanese = await saveCollection({ language: 'ja', name: 'N1 Core', description: '' })
+        await saveWord('nihongo', 'learning', undefined, { defaultCollectionId: japanese.id })
+        await saveWord('kotoba', 'learning', undefined, { defaultCollectionId: 'missing-id' })
+        await saveWord('nihongo', 'known', undefined, { defaultCollectionId: 'en' })
+        const db = await database
+        expect((await db.get('words', 'nihongo'))?.collectionId).toBe(japanese.id)
+        expect((await db.get('words', 'kotoba'))?.collectionId).toBe('en')
+    })
     it('edits words, updates or clears meanings, migrates keys atomically, and deletes words', async () => {
         const source = { title: 'Doc', url: 'https://example.com', context: 'Check the register.' }
         await saveWord('register', 'learning', source, { level: 2, meaning: '登记' })

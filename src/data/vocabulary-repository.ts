@@ -105,6 +105,7 @@ export async function saveWord(
         id?: string
         meaning?: string
         collectionId?: string
+        defaultCollectionId?: string
     },
 ): Promise<void> {
     const key = normalizeWord(text)
@@ -124,10 +125,13 @@ export async function saveWord(
     const rating = { state, level }
     const changed = !previous || previous.state !== state || (previous.level ?? 1) !== (level ?? 1)
     const meaning = options?.meaning ?? previous?.meaning
+    const collections = await tx.objectStore('collections').getAll()
+    const preferredDefault =
+        options?.defaultCollectionId && collections.some((item) => item.id === options.defaultCollectionId)
+            ? options.defaultCollectionId
+            : undefined
     const collectionId =
-        options?.collectionId ??
-        previous?.collectionId ??
-        activeCollectionId(await tx.objectStore('collections').getAll())
+        options?.collectionId ?? previous?.collectionId ?? preferredDefault ?? activeCollectionId(collections)
     const collectionChanged = options?.collectionId !== undefined && collectionId !== previous?.collectionId
     if (changed || options?.reviewed || meaning !== previous?.meaning || collectionChanged) {
         await words.put({
