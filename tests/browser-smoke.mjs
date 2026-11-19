@@ -43,6 +43,8 @@ function makePdf(pages) {
 
 const pdf = makePdf(300)
 let translationRequests = 0
+let activePanelRequests = 0
+let peakPanelRequests = 0
 const translationInputs = []
 const fixtureSentence = 'Hardware register learning vocabulary and embedded firmware documentation.'
 const server = createServer((request, response) => {
@@ -74,7 +76,15 @@ const server = createServer((request, response) => {
                 response.setHeader('Content-Type', 'application/json')
                 response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) } }] }))
             }
-            if (input.selectedText === 'cacheprobe') setTimeout(respond, 400)
+            if (input.context === fixtureSentence && !/\s/.test(input.selectedText)) {
+                activePanelRequests++
+                peakPanelRequests = Math.max(peakPanelRequests, activePanelRequests)
+                const timer = setTimeout(respond, 400)
+                response.once('close', () => {
+                    clearTimeout(timer)
+                    activePanelRequests--
+                })
+            } else if (input.selectedText === 'cacheprobe') setTimeout(respond, 400)
             else respond()
         })
     } else if (request.url === '/sample.pdf') {
@@ -216,6 +226,7 @@ try {
     const preview = registerRow.locator('.candidate-meaning')
     await preview.filter({ hasText: /^\s*寄存器\s*$/ }).waitFor()
     assert.equal((await preview.textContent()).trim(), '寄存器')
+    assert.equal(peakPanelRequests, 5, 'Visible rows should use five parallel fixture requests')
     const registerRequests = () =>
         translationInputs.filter(
             ({ selectedText, context }) => selectedText === 'register' && context === fixtureSentence,
@@ -232,15 +243,19 @@ try {
     await article.getByRole('button', { name: 'register ×2000' }).click()
     const card = article.locator('.word-card')
     await card.locator('.meaning-option').last().waitFor()
-    assert.deepEqual(await card.locator('.meaning-option > span').allTextContents(), ['寄存器', '登记'])
+    assert.deepEqual(await card.locator('.meaning-option > span:first-child').allTextContents(), [
+        '寄存器',
+        '登记',
+    ])
     assert.equal(registerRequests(), 1, 'The panel and card share the same context cache')
     const preferredMeaning = card.getByRole('button', { name: '寄存器', exact: true })
-    const contextMatch = card.locator('.context-match[title="语境首选"]')
+    const contextMatch = preferredMeaning.locator('.context-match[title="语境首选"]')
+    const contextDescription = card.locator('span[hidden]').filter({ hasText: /^语境首选$/ })
     await contextMatch.waitFor()
     assert.equal(await preferredMeaning.getAttribute('aria-pressed'), 'true')
     assert.equal(
         await preferredMeaning.getAttribute('aria-describedby'),
-        await contextMatch.getAttribute('id'),
+        await contextDescription.getAttribute('id'),
     )
     assert.equal(await card.getByText('名词', { exact: true }).count(), 0)
     await card.getByRole('button', { name: 'Spotlight 正文高亮', pressed: false }).click()
@@ -251,7 +266,7 @@ try {
     assert.equal(await preferredMeaning.getAttribute('aria-pressed'), 'false')
     assert.equal(
         await preferredMeaning.getAttribute('aria-describedby'),
-        await contextMatch.getAttribute('id'),
+        await contextDescription.getAttribute('id'),
     )
     await card.getByRole('button', { name: '学习 2 级 - register', exact: true }).click()
     await card.getByText('已保存 - 学习 2 级', { exact: true }).waitFor()

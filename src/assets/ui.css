@@ -670,13 +670,6 @@ blockquote {
     gap: 4px;
 }
 
-.meaning-choice {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    max-width: 100%;
-}
-
 .meaning-option {
     display: inline-flex;
     align-items: baseline;
@@ -684,6 +677,7 @@ blockquote {
     gap: 2px 5px;
     min-height: 28px;
     min-width: 0;
+    max-width: 100%;
     padding: 2px 7px;
     border-radius: 6px;
     text-align: start;
@@ -698,6 +692,7 @@ blockquote {
 
 .context-match {
     display: inline-flex;
+    align-self: center;
     flex: none;
     color: #746392;
 }

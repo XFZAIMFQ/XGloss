@@ -296,7 +296,7 @@ async function translate(requestKey: string, input: z.infer<typeof translationIn
         if (cached && 'result' in cached) return cached.result
         let ongoing = ongoingTranslations.get(key)
         if (!ongoing) {
-            if (ongoingTranslations.size >= 4) throw new Error(t('translation.busy'))
+            if (ongoingTranslations.size >= 6) throw new Error(t('translation.busy'))
             const upstream = new AbortController()
             const result = requestTranslation(settings, input, fetch, upstream.signal)
                 .then(async (result) => {

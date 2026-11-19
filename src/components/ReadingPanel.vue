@@ -48,6 +48,7 @@ const revealed = ref(new Set<string>())
 let recallGeneration = 0
 let unsubscribe: (() => void) | undefined
 let scheduleMeaning: ((word: string) => void) | undefined
+const maxConcurrentMeanings = 5
 const saving = ref(new Set<string>())
 const confirmed = ref(new Map<string, WordRating>())
 const rowErrors = ref(new Map<string, string>())
@@ -138,7 +139,7 @@ watch(
             return dictionaryMeanings(entry, 'simple')[0]?.slice(0, 300) ?? ''
         }
         function drain() {
-            while (!signal.aborted && loading.size < 2 && queue.size) {
+            while (!signal.aborted && loading.size < maxConcurrentMeanings && queue.size) {
                 const word = queue.values().next().value!
                 queue.delete(word)
                 loading.add(word)

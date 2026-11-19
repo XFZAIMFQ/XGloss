@@ -279,30 +279,30 @@ onBeforeUnmount(() => {
                     {{ t('card.localDictionary') }}
                 </p>
                 <div class="meaning-options" role="group" :aria-label="t('card.choices')">
-                    <div v-for="meaning in visibleMeanings" :key="meaning.text" class="meaning-choice">
-                        <button
-                            type="button"
-                            class="meaning-option"
-                            :aria-pressed="meaning.text === chosenMeaning"
-                            :aria-describedby="meaning.text === contextMatch ? contextMatchId : undefined"
-                            :disabled="saving || loadingSavedMeaning"
-                            @click="selectedMeaning = meaning.text"
-                        >
-                            <span>{{ meaning.text }}</span>
-                            <small v-if="mode === 'detailed' && meaning.partOfSpeech" class="muted">
-                                {{ meaning.partOfSpeech }}
-                            </small>
-                        </button>
+                    <span v-if="contextMatch" :id="contextMatchId" hidden>{{ t('card.bestMatch') }}</span>
+                    <button
+                        v-for="meaning in visibleMeanings"
+                        :key="meaning.text"
+                        type="button"
+                        class="meaning-option"
+                        :aria-pressed="meaning.text === chosenMeaning"
+                        :aria-describedby="meaning.text === contextMatch ? contextMatchId : undefined"
+                        :disabled="saving || loadingSavedMeaning"
+                        @click="selectedMeaning = meaning.text"
+                    >
+                        <span>{{ meaning.text }}</span>
+                        <small v-if="mode === 'detailed' && meaning.partOfSpeech" class="muted">
+                            {{ meaning.partOfSpeech }}
+                        </small>
                         <span
                             v-if="meaning.text === contextMatch"
-                            :id="contextMatchId"
                             class="context-match"
                             :title="t('card.bestMatch')"
+                            aria-hidden="true"
                         >
-                            <Sparkles :size="13" aria-hidden="true" />
-                            <span class="reading-announcement">{{ t('card.bestMatch') }}</span>
+                            <Sparkles :size="13" />
                         </span>
-                    </div>
+                    </button>
                     <button
                         v-if="hasMore"
                         type="button"
