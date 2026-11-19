@@ -1,246 +1,351 @@
 .metric-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
 }
+
 .metric-card {
-    border-radius: 24px;
-    background: white;
-    padding: 24px;
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 16px;
     border: 1px solid var(--line);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
 }
+
 .metric-card > span,
 .metric-card p {
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
 }
+
 .metric-card > div:not(.progress-track) {
     display: flex;
     align-items: center;
-    gap: 13px;
-    margin: 10px 0;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 6px 0 4px;
 }
+
 .metric-card strong {
-    font-size: 32px;
-    font-weight: 800;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
 }
+
 .metric-card p {
     margin: 0;
 }
+
 .metric-card svg {
-    color: #7e7b91;
+    color: var(--muted);
 }
+
 .metric-card svg.lime-text {
     color: var(--lime);
 }
+
 .metric-card svg.orange-text {
     color: var(--orange);
 }
+
 .activity-panel {
-    margin-top: 18px;
+    margin-top: 16px;
 }
+
+.heatmap-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.heatmap-head h2,
+.heatmap-head p {
+    margin: 0;
+}
+
+.heatmap-head p {
+    margin-top: 3px;
+}
+
+.shadcn-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 9999px;
+    border: 1px solid var(--line);
+    background: #fafafa;
+    font-size: 12px;
+    font-weight: 500;
+    color: #52525b;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .heatmap-scroll {
     overflow-x: auto;
-    margin-top: 28px;
-    padding: 0 0 8px;
+    max-width: 100%;
+    padding: 4px 2px 6px;
 }
+
 .heatmap {
     display: grid;
-    grid-template-columns: 22px;
+    grid-template-columns: 24px;
     grid-template-rows: 18px repeat(7, 13px);
     grid-auto-columns: 13px;
-    gap: 4px;
+    gap: 3px;
     width: fit-content;
     margin: 0 auto;
 }
+
 .heatmap-label {
     font-size: 11px;
+    line-height: 13px;
     white-space: nowrap;
     color: var(--muted);
 }
+
 .heatmap-cell,
 .heatmap-legend i {
     background: var(--soft);
     border-radius: 3px;
+    border: 1px solid rgb(27 31 35 / 0.06);
 }
+
 .heatmap-cell {
-    border: 0;
+    width: 13px;
+    height: 13px;
+    min-width: 0;
     min-height: 0;
     padding: 0;
+    box-shadow: none;
 }
+
+.heatmap-cell:hover {
+    border-color: var(--ink);
+}
+
 .heatmap-cell[aria-pressed='true'] {
-    outline: 1px solid var(--ink);
+    outline: 2px solid var(--ink);
     outline-offset: 1px;
 }
+
+.activity-panel [data-intensity='0'] {
+    background: #f4f4f5;
+}
+
 .activity-panel [data-intensity='1'] {
-    background: #eaf1d2;
+    background: #dcfce7;
 }
+
 .activity-panel [data-intensity='2'] {
-    background: #d9e9a3;
+    background: #86efac;
 }
+
 .activity-panel [data-intensity='3'] {
-    background: #b8d652;
+    background: #22c55e;
 }
+
 .activity-panel [data-intensity='4'] {
-    background: var(--lime);
+    background: #15803d;
 }
+
 .heatmap-legend {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     color: var(--muted);
     font-size: 12px;
-    margin-top: 20px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--soft);
 }
+
 .legend-space {
     flex: 1;
 }
+
 .heatmap-legend i {
-    height: 13px;
-    width: 13px;
+    height: 12px;
+    width: 12px;
 }
+
 .activity-row {
     display: flex;
-    gap: 13px;
+    gap: 12px;
     align-items: center;
-    padding: 16px;
-    border-radius: 16px;
-    background: #f7f6f9;
-    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--soft);
+    background: #fafafa;
+    margin-top: 8px;
 }
+
 .activity-row p {
-    margin: 3px 0 0;
+    margin: 2px 0 0;
 }
+
 .activity-row time {
     margin-left: auto;
     color: var(--muted);
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
 }
+
 .activity-symbol {
-    width: 29px;
-    height: 29px;
+    width: 28px;
+    height: 28px;
     display: grid;
     place-items: center;
-    color: white;
-    background: #9390a5;
+    color: #52525b;
+    background: #ffffff;
+    border: 1px solid var(--line);
     border-radius: 50%;
+    flex-shrink: 0;
 }
+
 .review-filters {
     margin-top: 0;
     display: flex;
     align-items: flex-end;
-    gap: 25px;
-    padding: 18px 22px;
+    gap: 16px;
+    padding: 16px 20px;
 }
-.review-filters label {
+
+.review-filters label,
+.review-filter-group > span {
     display: block;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
+    font-weight: 500;
     margin-bottom: 6px;
 }
-.review-source {
-    border: 1px solid #dbd9e3;
-    border-radius: 14px;
-    padding: 10px 15px;
-    display: flex;
-    gap: 14px;
-    background: var(--soft);
-    align-items: center;
+
+.review-filter-group {
+    min-width: 220px;
 }
-.review-source strong {
-    font-weight: 600;
-}
-.review-source span {
-    font-size: 12px;
-}
+
 .review-limit {
     min-width: 120px;
 }
-.review-limit select {
+
+.review-limit .select-wrap {
     margin-top: 6px;
+    width: 100%;
 }
+
+.review-limit select,
+.review-filter-group select {
+    width: 100%;
+}
+
+.review-meta-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+}
+
 .section-label {
-    font-size: 14px;
-    margin: 30px 6px 18px;
+    font-size: 13px;
+    margin: 22px 2px 12px;
 }
+
 .review-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 17px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
 }
+
 .review-mode {
     position: relative;
     overflow: hidden;
     border: 1px solid var(--line);
-    background: white;
-    border-radius: 24px;
-    padding: 25px;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.02);
 }
+
 .review-mode h2 {
     position: relative;
-    font-size: 19px;
-    margin-bottom: 15px;
+    font-size: 16px;
+    margin-bottom: 8px;
 }
+
 .review-mode p {
     position: relative;
     color: var(--muted);
-    min-height: 65px;
-    font-size: 14px;
+    min-height: 48px;
+    font-size: 13px;
 }
+
 .review-mode button {
     position: relative;
-    padding: 9px 20px;
 }
+
 .review-watermark {
     position: absolute;
-    top: -3px;
+    top: -4px;
     right: -4px;
-    color: #f8f7fa;
+    color: #f4f4f5;
 }
+
 .review-session {
     max-width: 760px;
     text-align: center;
     min-height: 400px;
 }
+
 .review-prompt {
     padding: 28px 0;
 }
+
 .review-prompt h2 {
-    font-size: 34px;
+    font-size: 32px;
 }
+
 .review-answer {
     display: flex;
     gap: 10px;
     max-width: 440px;
     margin: 0 auto;
 }
+
 .review-answer input {
     min-width: 0;
 }
+
 .review-definition {
     white-space: pre-wrap;
-    margin: 28px auto;
+    margin: 24px auto;
     max-width: 500px;
 }
+
 .review-rating {
     display: flex;
     justify-content: center;
-    gap: 12px;
-    margin-top: 28px;
+    gap: 10px;
+    margin-top: 24px;
 }
+
 .review-feedback {
-    margin-top: 16px;
+    margin-top: 14px;
     color: var(--muted);
 }
+
 .review-complete {
-    padding: 70px 0;
+    padding: 64px 0;
 }
+
 .review-complete svg {
-    margin-bottom: 15px;
+    margin-bottom: 14px;
 }
+
 @media (max-width: 1100px) {
     .metric-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .review-grid {
         grid-template-columns: 1fr;
@@ -249,22 +354,28 @@
         min-height: auto;
     }
 }
+
 @media (max-width: 850px) {
     .review-filters {
         align-items: stretch;
         flex-direction: column;
         gap: 10px;
     }
-    .review-source {
-        flex-wrap: wrap;
+    .review-meta-count {
+        margin-left: 0;
     }
 }
+
 @media (max-width: 600px) {
     .metric-grid {
         grid-template-columns: 1fr 1fr;
         gap: 10px;
     }
     .metric-card {
-        padding: 16px;
+        padding: 14px;
+    }
+    .heatmap-head {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }

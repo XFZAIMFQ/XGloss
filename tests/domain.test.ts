@@ -10,6 +10,7 @@ import {
 import { parseWordCsv } from '../src/domain/csv'
 import { dictionaryMeanings } from '../src/domain/definitions'
 import { activityStreaks, localDay, summarizeActivity } from '../src/domain/activity'
+import { activeCollectionId, sortCollections, wordCollectionId } from '../src/domain/collections'
 
 describe('vocabulary statistics', () => {
     it('normalizes casing and apostrophes while excluding identifiers', () => {
@@ -114,5 +115,47 @@ describe('learning activity', () => {
         )
         expect(counts).toEqual({ [localDay(start)]: 1, [localDay(yesterday)]: 1 })
         expect(activityStreaks(counts, start, today)).toEqual({ current: 2, longest: 2 })
+    })
+})
+
+describe('collections domain helpers', () => {
+    it('sorts pinned collections first and falls back to the default collection id', () => {
+        const sorted = sortCollections([
+            {
+                id: 'ja',
+                language: 'ja',
+                name: 'Japanese',
+                description: '',
+                pinned: false,
+                createdAt: 1,
+                updatedAt: 99,
+            },
+            {
+                id: 'en',
+                language: 'en',
+                name: 'English',
+                description: '',
+                pinned: true,
+                createdAt: 1,
+                updatedAt: 10,
+            },
+            {
+                id: 'de',
+                language: 'de',
+                name: 'German',
+                description: '',
+                pinned: true,
+                createdAt: 1,
+                updatedAt: 50,
+            },
+        ])
+        expect(sorted.map((item) => item.id)).toEqual(['de', 'en', 'ja'])
+        expect(activeCollectionId(sorted)).toBe('de')
+        expect(wordCollectionId({ collectionId: undefined })).toBe('en')
+        expect(wordCollectionId({ collectionId: 'ja' })).toBe('ja')
+    })
+    it('attaches an optional collectionId when parsing CSV', () => {
+        const parsed = parseWordCsv('word,state\ncat,learning\n', 'ja')
+        expect(parsed.words[0]?.collectionId).toBe('ja')
     })
 })

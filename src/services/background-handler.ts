@@ -3,10 +3,15 @@ import { browser } from 'wxt/browser'
 import { z } from 'zod'
 import { database } from '../data/database'
 import {
+    deleteWord,
     exportVocabulary,
     importVocabulary,
+    listCollections,
     loadEncounterMeaning,
+    saveCollection,
     saveWord,
+    toggleCollectionPin,
+    updateWord,
 } from '../data/vocabulary-repository'
 import {
     loadDefinitionMode,
@@ -23,6 +28,8 @@ import {
 import { webHostname } from '../platform/web-site'
 import { summarizeActivity } from '../domain/activity'
 import {
+    collectionIdSchema,
+    collectionLanguageSchema,
     errorMessage,
     pdfBookmarkSchema,
     savedMeaningSchema,
@@ -55,6 +62,11 @@ const privileged = new Set([
     'saveDefinitionMode',
     'export',
     'import',
+    'collections',
+    'saveCollection',
+    'toggleCollectionPin',
+    'updateWord',
+    'deleteWord',
     'encounters',
     'wordDetails',
     'activityCounts',
@@ -171,6 +183,27 @@ async function execute(
     switch (message.operation) {
         case 'words':
             return db.getAll('words')
+        case 'collections':
+            return listCollections()
+        case 'saveCollection': {
+            const input = z
+                .object({
+                    id: collectionIdSchema.optional(),
+                    language: collectionLanguageSchema,
+                    name: z.string().trim().min(1).max(80),
+                    description: z.string().trim().max(300).default(''),
+                    pinned: z.boolean().optional(),
+                })
+                .parse(message.input)
+            const saved = await saveCollection(input)
+            await notifyChanged({ event: 'vocabularyChanged' })
+            return saved
+        }
+        case 'toggleCollectionPin': {
+            const updated = await toggleCollectionPin(collectionIdSchema.parse(message.input))
+            await notifyChanged({ event: 'vocabularyChanged' })
+            return updated
+        }
         case 'saveWord': {
             const input = wordRatingSchema
                 .extend({
@@ -178,11 +211,32 @@ async function execute(
                     source: sourceSchema.optional(),
                     reviewed: z.boolean().optional(),
                     meaning: savedMeaningSchema.optional(),
+                    collectionId: collectionIdSchema.optional(),
                 })
                 .parse(message.input)
             if (input.state !== 'learning' && input.level !== undefined)
                 throw new Error(t('rating.invalidLevel'))
             await saveWord(input.text, input.state, input.source, { ...input, id: message.requestId })
+            await notifyChanged({ event: 'vocabularyChanged' })
+            return null
+        }
+        case 'updateWord': {
+            const input = wordRatingSchema
+                .extend({
+                    originalKey: z.string().min(1).max(200),
+                    text: z.string().trim().min(1).max(200),
+                    meaning: z.string().trim().max(300).optional(),
+                    collectionId: collectionIdSchema.optional(),
+                })
+                .parse(message.input)
+            if (input.state !== 'learning' && input.level !== undefined)
+                throw new Error(t('rating.invalidLevel'))
+            const updated = await updateWord(input)
+            await notifyChanged({ event: 'vocabularyChanged' })
+            return updated
+        }
+        case 'deleteWord': {
+            await deleteWord(z.string().min(1).max(200).parse(message.input))
             await notifyChanged({ event: 'vocabularyChanged' })
             return null
         }

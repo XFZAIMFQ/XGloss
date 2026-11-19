@@ -6,6 +6,7 @@ import { errorMessage, type LearningActivity, type Word } from '../domain/models
 import { activityStreaks, localDay } from '../domain/activity'
 import { ratingLabel } from '../domain/vocabulary'
 import { onVocabularyChanged, request } from '../platform/messages'
+
 const props = defineProps<{ words: Word[] }>()
 const known = computed(() => props.words.filter((word) => word.state === 'known').length)
 const learning = computed(() => props.words.filter((word) => word.state === 'learning').length)
@@ -15,9 +16,11 @@ const progress = computed(() =>
 )
 const today = new Date()
 today.setHours(0, 0, 0, 0)
+
 function addDays(date: Date, days: number) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
 }
+
 const first = addDays(today, -364)
 const firstSunday = addDays(first, -first.getDay())
 const calendar = Array.from({ length: 371 }, (_, index) => {
@@ -41,6 +44,7 @@ const error = ref('')
 const dayError = ref('')
 const heatmapScroll = ref<HTMLElement>()
 const streaks = computed(() => activityStreaks(counts.value, first, today))
+const yearTotal = computed(() => Object.values(counts.value).reduce((sum, count) => sum + count, 0))
 const labels = { added: t('stats.added'), rated: t('stats.rated'), reviewed: t('stats.reviewed') }
 const wordsByKey = computed(() => new Map(props.words.map((word) => [word.key, word.text])))
 let summaryGeneration = 0
@@ -51,6 +55,7 @@ let resize: ResizeObserver | undefined
 function intensity(count: number) {
     return count === 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : count <= 10 ? 3 : 4
 }
+
 async function refresh() {
     const generation = ++summaryGeneration
     try {
@@ -67,6 +72,7 @@ async function refresh() {
         if (generation === summaryGeneration) loading.value = false
     }
 }
+
 async function refreshDay() {
     const generation = ++dayGeneration
     loadingDay.value = true
@@ -84,6 +90,7 @@ async function refreshDay() {
         if (generation === dayGeneration) loadingDay.value = false
     }
 }
+
 async function move(event: KeyboardEvent) {
     const offsets: Record<string, number> = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 }
     const offset = offsets[event.key]
@@ -95,7 +102,9 @@ async function move(event: KeyboardEvent) {
     await nextTick()
     heatmapScroll.value?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus()
 }
+
 watch(selected, () => void refreshDay(), { immediate: true })
+
 onMounted(() => {
     const scroll = heatmapScroll.value
     if (scroll) {
@@ -114,6 +123,7 @@ onMounted(() => {
         void refreshDay()
     })
 })
+
 onBeforeUnmount(() => {
     summaryGeneration++
     dayGeneration++
@@ -123,18 +133,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header class="page-heading">
-        <div>
-            <h1>{{ t('common.statistics') }}</h1>
-            <p class="muted">{{ t('stats.intro') }}</p>
-        </div>
-    </header>
+    <div class="page-heading">
+        <p>{{ t('stats.intro') }}</p>
+    </div>
     <section class="metric-grid">
         <article class="metric-card">
             <span>{{ t('stats.all') }}</span>
             <div>
                 <strong>{{ words.length }}</strong>
-                <BookOpen />
+                <BookOpen :size="16" />
             </div>
             <p>{{ t('common.localLibrary') }}</p>
         </article>
@@ -142,7 +149,7 @@ onBeforeUnmount(() => {
             <span>{{ t('common.learning') }}</span>
             <div>
                 <strong>{{ learning }}</strong>
-                <Bookmark class="orange-text" />
+                <Bookmark :size="16" class="orange-text" />
             </div>
             <p>{{ t('stats.learningHelp') }}</p>
         </article>
@@ -150,7 +157,7 @@ onBeforeUnmount(() => {
             <span>{{ t('common.known') }}</span>
             <div>
                 <strong>{{ known }}</strong>
-                <Check class="lime-text" />
+                <Check :size="16" class="lime-text" />
             </div>
             <p>{{ t('stats.knownPercent', { percent: progress }) }}</p>
             <div class="progress-track"><span :style="{ width: progress + '%' }"></span></div>
@@ -159,16 +166,23 @@ onBeforeUnmount(() => {
             <span>{{ t('common.ignored') }}</span>
             <div>
                 <strong>{{ ignored }}</strong>
-                <EyeOff />
+                <EyeOff :size="16" />
             </div>
             <p>{{ t('stats.ignoredHelp') }}</p>
         </article>
     </section>
     <section class="panel activity-panel">
-        <h2>{{ t('stats.calendar') }}</h2>
-        <p class="muted small">
-            {{ t('stats.streak', { current: streaks.current, longest: streaks.longest }) }}
-        </p>
+        <div class="heatmap-head">
+            <div>
+                <h2>{{ t('stats.calendar') }}</h2>
+                <p class="muted small">
+                    {{ t('stats.streak', { current: streaks.current, longest: streaks.longest }) }}
+                </p>
+            </div>
+            <span class="shadcn-badge">
+                {{ t('stats.yearTotal', { count: yearTotal.toLocaleString() }) }}
+            </span>
+        </div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <p v-if="loading" class="muted small" role="status">{{ t('stats.loading') }}</p>
         <div ref="heatmapScroll" class="heatmap-scroll">
@@ -205,7 +219,7 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <div class="heatmap-legend">
-            <CalendarDays :size="16" />
+            <CalendarDays :size="15" />
             <span>{{ t('stats.lastYear') }}</span>
             <span class="legend-space"></span>
             <span>{{ t('stats.few') }}</span>
@@ -217,7 +231,7 @@ onBeforeUnmount(() => {
         <h2>{{ t('stats.selectedDay', { date: selected }) }}</h2>
         <p v-if="dayError" class="error" role="alert">{{ dayError }}</p>
         <p v-else-if="loadingDay" class="muted small" role="status">{{ t('stats.loadingDay') }}</p>
-        <p v-else-if="!activity.length" class="empty-description">{{ t('stats.emptyDay') }}</p>
+        <p v-else-if="!activity.length" class="empty-description muted small">{{ t('stats.emptyDay') }}</p>
         <p v-else class="muted small">
             {{ t('common.wordCount', { count: counts[selected] ?? 0 }) }}
             <span v-if="activity.length > 200">- {{ t('stats.recentOnly') }}</span>
@@ -228,8 +242,8 @@ onBeforeUnmount(() => {
             class="activity-row"
         >
             <span class="activity-symbol">
-                <Check v-if="item.rating.state === 'known'" :size="18" />
-                <Bookmark v-else :size="18" />
+                <Check v-if="item.rating.state === 'known'" :size="15" />
+                <Bookmark v-else :size="15" />
             </span>
             <div>
                 <strong>{{ wordsByKey.get(item.wordKey) ?? item.wordKey }}</strong>

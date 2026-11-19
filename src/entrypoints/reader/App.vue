@@ -17,6 +17,7 @@ import {
 import { onVocabularyChanged, request } from '../../platform/messages'
 import ReadingPanel from '../../components/ReadingPanel.vue'
 import FloatingWordCard from '../../components/FloatingWordCard.vue'
+import BrandLogo from '../../components/BrandLogo.vue'
 
 const container = ref<HTMLDivElement>()
 const pages = ref<HTMLDivElement>()
@@ -363,7 +364,10 @@ onBeforeUnmount(() => {
 <template>
     <main class="pdf-reader">
         <header class="reader-toolbar">
-            <a class="brand" href="library.html">XGloss</a>
+            <a class="brand" href="library.html">
+                <BrandLogo :size="24" />
+                <span>XGloss</span>
+            </a>
             <label class="file-button">
                 {{ t('pdf.openFile') }}
                 <input type="file" accept="application/pdf,.pdf" :disabled="loading" @change="fileChanged" />

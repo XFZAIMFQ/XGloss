@@ -2,6 +2,7 @@ import { t } from '../i18n'
 import { browser } from 'wxt/browser'
 import type {
     Backup,
+    CollectionLanguage,
     DefinitionMode,
     DictionaryEntry,
     Encounter,
@@ -11,6 +12,7 @@ import type {
     TranslationInput,
     TranslationResult,
     TranslationSettings,
+    VocabularyCollection,
     Word,
     WordSource,
     WordRating,
@@ -19,9 +21,37 @@ import type {
 export interface Operations {
     words: { input: undefined; output: Word[] }
     saveWord: {
-        input: WordRating & { text: string; source?: WordSource; reviewed?: boolean; meaning?: string }
+        input: WordRating & {
+            text: string
+            source?: WordSource
+            reviewed?: boolean
+            meaning?: string
+            collectionId?: string
+        }
         output: null
     }
+    updateWord: {
+        input: WordRating & {
+            originalKey: string
+            text: string
+            meaning?: string
+            collectionId?: string
+        }
+        output: Word
+    }
+    deleteWord: { input: string; output: null }
+    collections: { input: undefined; output: VocabularyCollection[] }
+    saveCollection: {
+        input: {
+            id?: string
+            language: CollectionLanguage
+            name: string
+            description: string
+            pinned?: boolean
+        }
+        output: VocabularyCollection
+    }
+    toggleCollectionPin: { input: string; output: VocabularyCollection }
     encounterMeaning: { input: { text: string; source: WordSource }; output: string | undefined }
     wordDetails: {
         input: string[]

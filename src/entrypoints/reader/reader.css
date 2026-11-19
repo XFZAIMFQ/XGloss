@@ -11,6 +11,11 @@
 .reader-toolbar {
     z-index: 10;
 }
+.reader-toolbar .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
 .url-input {
     flex: 1;
     min-width: 200px;

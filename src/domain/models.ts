@@ -1,6 +1,22 @@
 import { t } from '../i18n'
 import { z } from 'zod'
 
+export const collectionLanguages = ['en', 'ja', 'ko', 'de', 'fr', 'es', 'ru', 'it'] as const
+export const collectionLanguageSchema = z.enum(collectionLanguages)
+export type CollectionLanguage = z.infer<typeof collectionLanguageSchema>
+export const defaultCollectionId = 'en'
+export const collectionIdSchema = z.string().trim().min(1).max(100)
+export const vocabularyCollectionSchema = z.object({
+    id: collectionIdSchema,
+    language: collectionLanguageSchema,
+    name: z.string().trim().min(1).max(80),
+    description: z.string().trim().max(300).default(''),
+    pinned: z.boolean().default(false),
+    createdAt: z.number().finite(),
+    updatedAt: z.number().finite(),
+})
+export type VocabularyCollection = z.infer<typeof vocabularyCollectionSchema>
+
 export const wordStateSchema = z.enum(['learning', 'known', 'ignored'])
 export type WordState = z.infer<typeof wordStateSchema>
 export const learningLevels = [1, 2, 3, 4] as const
@@ -14,6 +30,7 @@ export const wordSchema = wordRatingSchema.extend({
     text: z.string().min(1).max(200),
     updatedAt: z.number().finite(),
     meaning: savedMeaningSchema.optional(),
+    collectionId: collectionIdSchema.optional(),
 })
 export type Word = z.infer<typeof wordSchema>
 export const sourceSchema = z.object({
@@ -46,7 +63,11 @@ const legacyBackupSchema = z.object({
 })
 export const backupSchema = z.discriminatedUnion('version', [
     legacyBackupSchema,
-    legacyBackupSchema.extend({ version: z.literal(2), activities: z.array(activitySchema).max(500_000) }),
+    legacyBackupSchema.extend({
+        version: z.literal(2),
+        activities: z.array(activitySchema).max(500_000),
+        collections: z.array(vocabularyCollectionSchema).max(200).optional(),
+    }),
 ])
 export type Backup = z.infer<typeof backupSchema>
 export const translationSettingsSchema = z.object({

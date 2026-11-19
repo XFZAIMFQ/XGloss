@@ -8,7 +8,7 @@ import {
     type WordState,
 } from './models'
 
-export function parseWordCsv(text: string): Backup {
+export function parseWordCsv(text: string, collectionId?: string): Backup {
     const rows: string[][] = []
     let row: string[] = []
     let field = ''
@@ -57,7 +57,15 @@ export function parseWordCsv(text: string): Backup {
         if (level !== undefined && state !== 'learning') throw new Error(t('rating.invalidLevel'))
         const rawMeaning = row[meaningColumn]?.trim().replace(/^'(?=[=+@-])/, '')
         const meaning = rawMeaning ? savedMeaningSchema.parse(rawMeaning) : undefined
-        words.set(key, { key, text, state, level, meaning, updatedAt: Date.now() })
+        words.set(key, {
+            key,
+            text,
+            state,
+            level,
+            meaning,
+            ...(collectionId ? { collectionId } : {}),
+            updatedAt: Date.now(),
+        })
     }
     return { version: 1, words: [...words.values()], encounters: [] }
 }

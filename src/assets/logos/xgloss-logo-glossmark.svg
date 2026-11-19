@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+    <defs>
+        <linearGradient id="bg-gloss" x1="64" y1="4" x2="64" y2="124" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#18181b" />
+            <stop offset="100%" stop-color="#09090b" />
+        </linearGradient>
+        <linearGradient id="wing-right" x1="68" y1="39" x2="96" y2="97" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#fafafa" />
+            <stop offset="100%" stop-color="#d4d4d8" />
+        </linearGradient>
+        <linearGradient id="spark-green" x1="64" y1="15" x2="64" y2="41" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#4ade80" />
+            <stop offset="100%" stop-color="#16a34a" />
+        </linearGradient>
+    </defs>
+    <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg-gloss)" />
+    <rect
+        x="4.75"
+        y="4.75"
+        width="118.5"
+        height="118.5"
+        rx="27.25"
+        stroke="#ffffff"
+        stroke-opacity="0.12"
+        stroke-width="1.5"
+    />
+    <path
+        d="M32 39Q81 68 32 97"
+        stroke="#fafafa"
+        stroke-width="14"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+    <path
+        d="M96 39Q47 68 96 97"
+        stroke="url(#wing-right)"
+        stroke-width="14"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+    <path
+        d="M64 15C64.8 24.4 67.6 27.2 77 28C67.6 28.8 64.8 31.6 64 41C63.2 31.6 60.4 28.8 51 28C60.4 27.2 63.2 24.4 64 15Z"
+        fill="url(#spark-green)"
+    />
+</svg>

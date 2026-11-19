@@ -5,11 +5,13 @@ import type {
     PdfBookmark,
     ReadingProgress,
     TranslationResult,
+    VocabularyCollection,
     Word,
 } from '../domain/models'
 
 interface XGlossDatabase extends DBSchema {
     words: { key: string; value: Word }
+    collections: { key: string; value: VocabularyCollection }
     encounters: { key: string; value: Encounter; indexes: { wordKey: string; wordDate: [string, number] } }
     activities: { key: string; value: LearningActivity; indexes: { createdAt: number } }
     bookmarks: { key: [string, number]; value: PdfBookmark; indexes: { documentId: string } }
@@ -20,7 +22,7 @@ interface XGlossDatabase extends DBSchema {
     progress: { key: string; value: ReadingProgress }
 }
 
-export const database = openDB<XGlossDatabase>('xgloss', 2, {
+export const database = openDB<XGlossDatabase>('xgloss', 3, {
     upgrade(db, oldVersion, _newVersion, tx) {
         if (oldVersion < 1) {
             db.createObjectStore('words', { keyPath: 'key' })
@@ -36,6 +38,9 @@ export const database = openDB<XGlossDatabase>('xgloss', 2, {
                 'documentId',
                 'documentId',
             )
+        }
+        if (oldVersion < 3) {
+            db.createObjectStore('collections', { keyPath: 'id' })
         }
     },
 })

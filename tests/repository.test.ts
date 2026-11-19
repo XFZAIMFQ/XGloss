@@ -23,12 +23,22 @@ await legacy.put('progress', { id: 'pdf:legacy', page: 5, updatedAt: 3 })
 legacy.close()
 
 const { database } = await import('../src/data/database')
-const { exportVocabulary, importVocabulary, loadEncounterMeaning, saveWord } =
-    await import('../src/data/vocabulary-repository')
+const {
+    deleteWord,
+    exportVocabulary,
+    importVocabulary,
+    listCollections,
+    loadEncounterMeaning,
+    saveCollection,
+    saveWord,
+    toggleCollectionPin,
+    updateWord,
+} = await import('../src/data/vocabulary-repository')
 
 it('upgrades a version 1 database without losing words, encounters, or PDF progress', async () => {
     const db = await database
-    expect(db.version).toBe(2)
+    expect(db.version).toBe(3)
+    expect(db.objectStoreNames.contains('collections')).toBe(true)
     expect(await db.get('words', 'legacy')).toMatchObject({ state: 'learning' })
     expect((await db.getFromIndex('encounters', 'wordDate', ['legacy', 2]))?.id).toBe('source')
     expect((await db.get('progress', 'pdf:legacy'))?.page).toBe(5)
@@ -41,6 +51,7 @@ describe('persistent vocabulary', () => {
         await db.clear('words')
         await db.clear('encounters')
         await db.clear('activities')
+        await db.clear('collections')
     })
     it('deduplicates repeated encounters and updates state', async () => {
         const source = { title: 'Document', url: 'https://example.com', context: 'hardware register' }
@@ -103,5 +114,84 @@ describe('persistent vocabulary', () => {
         expect(backup.activities.map(({ kind }) => kind).sort()).toEqual(['rated', 'reviewed'])
         await importVocabulary(backup)
         expect((await exportVocabulary()).activities).toHaveLength(2)
+    })
+    it('manages language collections, pinning, and active collection word assignment', async () => {
+        const initial = await listCollections()
+        expect(initial).toHaveLength(1)
+        expect(initial[0]?.id).toBe('en')
+        const japanese = await saveCollection({
+            language: 'ja',
+            name: 'N1 Reading',
+            description: 'Japanese novels',
+        })
+        await saveCollection({
+            id: japanese.id,
+            language: 'ja',
+            name: 'N1 Core',
+            description: 'Updated note',
+        })
+        await toggleCollectionPin('en')
+        await toggleCollectionPin(japanese.id)
+        const sorted = await listCollections()
+        expect(sorted[0]?.id).toBe(japanese.id)
+        expect(sorted[0]?.name).toBe('N1 Core')
+        expect(sorted[0]?.pinned).toBe(true)
+        await saveWord('kotoba', 'learning')
+        await saveWord('register', 'learning', undefined, { collectionId: 'en' })
+        const backup = await exportVocabulary()
+        expect(backup.collections).toHaveLength(2)
+        expect(backup.words.find((item) => item.key === 'kotoba')?.collectionId).toBe(japanese.id)
+        expect(backup.words.find((item) => item.key === 'register')?.collectionId).toBe('en')
+        const db = await database
+        await db.clear('words')
+        await db.clear('collections')
+        await importVocabulary(backup)
+        const restored = await listCollections()
+        expect(restored.find((item) => item.id === japanese.id)?.name).toBe('N1 Core')
+    })
+    it('edits words, updates or clears meanings, migrates keys atomically, and deletes words', async () => {
+        const source = { title: 'Doc', url: 'https://example.com', context: 'Check the register.' }
+        await saveWord('register', 'learning', source, { level: 2, meaning: '登记' })
+        await saveWord('other', 'known')
+        const updatedMeaning = await updateWord({
+            originalKey: 'register',
+            text: 'register',
+            meaning: '寄存器',
+            state: 'learning',
+            level: 2,
+        })
+        expect(updatedMeaning.meaning).toBe('寄存器')
+        const clearedMeaning = await updateWord({
+            originalKey: 'register',
+            text: 'register',
+            meaning: '',
+            state: 'learning',
+            level: 2,
+        })
+        expect(clearedMeaning.meaning).toBeUndefined()
+        await expect(
+            updateWord({
+                originalKey: 'register',
+                text: 'other',
+                state: 'learning',
+                level: 2,
+            }),
+        ).rejects.toThrow('已存在')
+        const renamed = await updateWord({
+            originalKey: 'register',
+            text: 'Registry',
+            meaning: '注册表',
+            state: 'known',
+        })
+        expect(renamed.key).toBe('registry')
+        const db = await database
+        expect(await db.get('words', 'register')).toBeUndefined()
+        expect((await db.getAllFromIndex('encounters', 'wordKey', 'registry')).length).toBe(1)
+        const activities = await db.getAll('activities')
+        expect(activities.every((item) => item.wordKey === 'registry' || item.wordKey === 'other')).toBe(true)
+        await deleteWord('registry')
+        expect(await db.get('words', 'registry')).toBeUndefined()
+        expect(await db.getAllFromIndex('encounters', 'wordKey', 'registry')).toHaveLength(0)
+        expect((await db.getAll('activities')).some((item) => item.wordKey === 'registry')).toBe(false)
     })
 })
