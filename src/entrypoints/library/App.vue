@@ -23,7 +23,7 @@ import {
 } from '@lucide/vue'
 import { parseWordCsv } from '../../domain/csv'
 import { languageInfo, languageOptions, sortCollections, wordCollectionId } from '../../domain/collections'
-import { normalizeWord } from '../../domain/vocabulary'
+import { learningLevelLabel, normalizeWord } from '../../domain/vocabulary'
 import {
     defaultCollectionId,
     errorMessage,
@@ -46,7 +46,7 @@ const filterOptions: readonly SelectOption[] = [
     { value: 'learning', label: t('common.learning') },
     ...learningLevels.map((level) => ({
         value: `level-${level}`,
-        label: t('rating.learningLevel', { level }),
+        label: learningLevelLabel(level),
     })),
     { value: 'known', label: t('common.known') },
     { value: 'ignored', label: t('common.ignored') },

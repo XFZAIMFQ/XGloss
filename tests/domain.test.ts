@@ -4,7 +4,9 @@ import {
     contextAround,
     countTokens,
     highlightKind,
+    learningLevelDefinitions,
     normalizeWord,
+    ratingLabel,
     tokenize,
 } from '../src/domain/vocabulary'
 import { parseWordCsv } from '../src/domain/csv'
@@ -63,7 +65,7 @@ describe('CSV import', () => {
     it('rejects malformed or unsupported data before writes', () => {
         expect(() => parseWordCsv('word,state\nhello,invalid')).toThrow()
         expect(() => parseWordCsv('word\n"unclosed')).toThrow('引号未闭合')
-        expect(() => parseWordCsv('something\nhello')).toThrow('word 列')
+        expect(() => parseWordCsv('something\nhello')).toThrow('word 或 term 列')
     })
     it('keeps learning grades from new CSV and validates their state', () => {
         expect(parseWordCsv('word,state,level\nregister,learning,4\nknown,known,').words[0]?.level).toBe(4)
@@ -77,6 +79,61 @@ describe('CSV import', () => {
         expect(
             parseWordCsv('word,state,level,meaning\nregister,learning,2,"\'=test"').words[0]?.meaning,
         ).toBe('=test')
+    })
+    it('imports WordByWord CSV with status 1-5, meanings, and example encounters', () => {
+        const csv = [
+            'term,meaning,example,term_language,meaning_language,status',
+            'Classic,经典,Classic single-board computers (SBC).,en_US,cmn_CN,1',
+            'access,访问,,en_US,cmn_CN,2',
+            'should,应当,,en_US,cmn_CN,3',
+            'Controller,控制器,DMA Controller API.,en_US,cmn_CN,4',
+            'Password,密码,"…Network"" -DWIFI_PASSWORD=""Your Password""）。",en_US,cmn_CN,5',
+            'skipme,忽略词,,en_US,cmn_CN,0',
+        ].join('\n')
+        const result = parseWordCsv(csv, 'en')
+        expect(result.words).toHaveLength(6)
+        expect(result.words.find((w) => w.key === 'classic')).toMatchObject({
+            text: 'Classic',
+            state: 'learning',
+            level: 1,
+            meaning: '经典',
+            collectionId: 'en',
+        })
+        expect(result.words.find((w) => w.key === 'access')).toMatchObject({ state: 'learning', level: 2 })
+        expect(result.words.find((w) => w.key === 'should')).toMatchObject({ state: 'learning', level: 3 })
+        expect(result.words.find((w) => w.key === 'controller')).toMatchObject({
+            state: 'learning',
+            level: 4,
+        })
+        expect(result.words.find((w) => w.key === 'password')).toMatchObject({
+            state: 'known',
+            level: undefined,
+            meaning: '密码',
+        })
+        expect(result.words.find((w) => w.key === 'skipme')).toMatchObject({
+            state: 'ignored',
+            level: undefined,
+        })
+        expect(result.encounters).toHaveLength(3)
+        expect(result.encounters.find((e) => e.wordKey === 'classic')?.context).toBe(
+            'Classic single-board computers (SBC).',
+        )
+        expect(result.encounters.find((e) => e.wordKey === 'password')?.context).toBe(
+            '…Network" -DWIFI_PASSWORD="Your Password"）。',
+        )
+        expect(() => parseWordCsv('term,status\nhello,6')).toThrow('无效的状态值')
+    })
+    it('defines WordByWord-aligned learning levels 1-4', () => {
+        expect(learningLevelDefinitions.map((item) => item.english)).toEqual([
+            'New',
+            'Recognized',
+            'Familiar',
+            'Learned',
+        ])
+        expect(ratingLabel({ state: 'learning', level: 1 })).toBe('学习 1 级 (新词)')
+        expect(ratingLabel({ state: 'learning', level: 2 })).toBe('学习 2 级 (初识)')
+        expect(ratingLabel({ state: 'learning', level: 3 })).toBe('学习 3 级 (熟悉)')
+        expect(ratingLabel({ state: 'learning', level: 4 })).toBe('学习 4 级 (已学)')
     })
 })
 

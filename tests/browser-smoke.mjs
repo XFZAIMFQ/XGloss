@@ -274,8 +274,8 @@ try {
         await preferredMeaning.getAttribute('aria-describedby'),
         await contextDescription.getAttribute('id'),
     )
-    await card.getByRole('button', { name: '学习 2 级 - register', exact: true }).click()
-    await card.getByText('已保存 - 学习 2 级', { exact: true }).waitFor()
+    await card.getByRole('button', { name: '学习 2 级 (初识) - register', exact: true }).click()
+    await card.getByText('已保存 - 学习 2 级 (初识)', { exact: true }).waitFor()
     await article.waitForFunction(() => (CSS.highlights.get('xgloss-learning-2')?.size ?? 0) > 0)
     const requestsBeforeMode = registerRequests()
     await card.getByRole('button', { name: '详细释义', exact: true }).click()
@@ -348,16 +348,16 @@ try {
     const row = readingPanel
         .locator('.candidate-item')
         .filter({ has: article.getByRole('button', { name: 'register ×2000' }) })
-    const firstLevel = row.getByRole('button', { name: '学习 1 级 - register' })
-    const secondLevel = row.getByRole('button', { name: '学习 2 级 - register' })
+    const firstLevel = row.getByRole('button', { name: '学习 1 级 (新词) - register' })
+    const secondLevel = row.getByRole('button', { name: '学习 2 级 (初识) - register' })
     await firstLevel.scrollIntoViewIfNeeded()
     const currentScroll = await readingPanel
         .locator('.candidate-list')
         .evaluate((element) => element.scrollTop)
     await firstLevel.click()
-    await row.locator('button[aria-pressed="true"][aria-label="学习 1 级 - register"]').waitFor()
+    await row.locator('button[aria-pressed="true"][aria-label="学习 1 级 (新词) - register"]').waitFor()
     await secondLevel.click()
-    await row.locator('button[aria-pressed="true"][aria-label="学习 2 级 - register"]').waitFor()
+    await row.locator('button[aria-pressed="true"][aria-label="学习 2 级 (初识) - register"]').waitFor()
     assert.equal(
         await readingPanel.locator('.candidate-list').evaluate((element) => element.scrollTop),
         currentScroll,
@@ -570,8 +570,8 @@ try {
         .locator('.collection-meaning')
         .filter({ hasText: /^\s*登记\s*$/ })
         .waitFor()
-    await library.getByRole('button', { name: '学习 3 级 - register', exact: true }).click()
-    await library.locator('button[aria-pressed="true"][aria-label="学习 3 级 - register"]').waitFor()
+    await library.getByRole('button', { name: '学习 3 级 (熟悉) - register', exact: true }).click()
+    await library.locator('button[aria-pressed="true"][aria-label="学习 3 级 (熟悉) - register"]').waitFor()
     await library.getByRole('button', { name: '编辑 register', exact: true }).click()
     await library.getByLabel('对应翻译').fill('寄存器 / 登记')
     await library.getByRole('button', { name: '保存修改' }).click()
@@ -584,7 +584,7 @@ try {
     await library.locator('.encounter-list').getByText('登记', { exact: true }).waitFor()
     await library.getByRole('button', { name: '关闭词卡' }).click()
     await library.reload()
-    await library.locator('button[aria-pressed="true"][aria-label="学习 3 级 - register"]').waitFor()
+    await library.locator('button[aria-pressed="true"][aria-label="学习 3 级 (熟悉) - register"]').waitFor()
     await library
         .locator('.collection-meaning')
         .filter({ hasText: /^\s*寄存器 \/ 登记\s*$/ })
@@ -635,8 +635,8 @@ try {
     await library.getByRole('heading', { name: '本轮复习完成', exact: true }).waitFor()
     await library.getByRole('link', { name: '学习统计', exact: true }).click()
     await library.getByRole('heading', { name: '学习活动日历', exact: true }).waitFor()
-    await library.getByText('调整等级 - 学习 3 级', { exact: true }).waitFor()
-    await library.getByText('完成复习 - 学习 3 级', { exact: true }).first().waitFor()
+    await library.getByText('调整等级 - 学习 3 级 (熟悉)', { exact: true }).waitFor()
+    await library.getByText('完成复习 - 学习 3 级 (熟悉)', { exact: true }).first().waitFor()
     assert.equal(
         await library.locator('.heatmap-cell[aria-pressed="true"]').getAttribute('data-intensity'),
         '1',
@@ -784,8 +784,8 @@ try {
     await readingPanel.getByRole('button', { name: 'Spotlight 正文高亮', pressed: true }).waitFor()
     await otherSite.getByRole('button', { name: 'Spotlight 正文高亮', pressed: true }).waitFor()
     await otherSite.close()
-    await reader.locator('.word-card').getByRole('button', { name: '学习 4 级 - register' }).click()
-    await reader.getByText('已保存 - 学习 4 级', { exact: true }).waitFor()
+    await reader.locator('.word-card').getByRole('button', { name: '学习 4 级 (已学) - register' }).click()
+    await reader.getByText('已保存 - 学习 4 级 (已学)', { exact: true }).waitFor()
     assert.ok(
         await reader.evaluate(async () => {
             const result = await chrome.runtime.sendMessage({

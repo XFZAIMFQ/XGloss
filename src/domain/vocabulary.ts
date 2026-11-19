@@ -1,5 +1,5 @@
 import { t } from '../i18n'
-import { learningLevels, type Word, type WordRating } from './models'
+import { learningLevels, type LearningLevel, type Word, type WordRating } from './models'
 
 export const highlightKinds = [
     'unknown',
@@ -7,8 +7,33 @@ export const highlightKinds = [
 ] as const
 export type HighlightKind = (typeof highlightKinds)[number]
 
+export interface LearningLevelDefinition {
+    level: LearningLevel
+    key: 'new' | 'recognized' | 'familiar' | 'learned'
+    english: string
+    label: string
+}
+
+export const learningLevelDefinitions: readonly LearningLevelDefinition[] = [
+    { level: 1, key: 'new', english: 'New', label: t('rating.level1') },
+    { level: 2, key: 'recognized', english: 'Recognized', label: t('rating.level2') },
+    { level: 3, key: 'familiar', english: 'Familiar', label: t('rating.level3') },
+    { level: 4, key: 'learned', english: 'Learned', label: t('rating.level4') },
+]
+
+export function learningLevelName(level: LearningLevel): string {
+    return (
+        learningLevelDefinitions.find((item) => item.level === level)?.label ??
+        learningLevelDefinitions[0]!.label
+    )
+}
+
+export function learningLevelLabel(level: LearningLevel): string {
+    return t('rating.learningLevel', { level, name: learningLevelName(level) })
+}
+
 export function ratingLabel(rating: WordRating): string {
-    if (rating.state === 'learning') return t('rating.learningLevel', { level: rating.level ?? 1 })
+    if (rating.state === 'learning') return learningLevelLabel(rating.level ?? 1)
     return rating.state === 'known' ? t('common.known') : t('common.ignored')
 }
 

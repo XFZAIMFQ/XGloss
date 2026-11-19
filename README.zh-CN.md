@@ -70,7 +70,7 @@ npm run build
 
 - **我的词库 (`library.html`)**: 创建/编辑/置顶多语种词库、搜索与筛选词条、查看遇词原句上下文、编辑自定义释义及行内修改熟悉度.
 - **JSON v2 导入导出**: 完整保存词库集合、词汇状态、已选释义、遇词记录与学习活动; 导入时执行事务合并, 保留较新的词汇状态并兼容旧版 JSON v1 备份.
-- **CSV 导入导出**: 支持 `word,state,level,meaning` 列(`state` 可为 `learning`, `known`, `ignored`, 省略默认 `learning`).
+- **CSV 导入导出**: 支持原生 `word,state,level,meaning` 格式(`state` 可为 `learning`, `known`, `ignored`)以及 WordByWord 导出的 CSV (`term,meaning,example,...,status`, 其中 `1-4` 对应 `新词 / 初识 / 熟悉 / 已学`, `5` 对应 `已掌握`, 自动导入例句).
 - 所有数据默认仅保存在本地 IndexedDB, 卸载扩展前建议导出 JSON 备份.
 
 ## 开发与测试命令

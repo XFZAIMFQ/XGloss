@@ -70,7 +70,7 @@ XGloss sends `POST {baseUrl}/chat/completions` with `model`, `temperature: 0.1`,
 
 - **Library Page (`library.html`)**: Manage collections (create, edit, pin), search/filter words, inspect historical encounters and contexts, edit custom meanings, and adjust ratings inline.
 - **JSON v2 Export / Import**: Preserves collections, words, saved meanings, encounter contexts, and learning activities; imports merge while keeping newer word states and unioning history. Backward compatible with JSON v1 backups.
-- **CSV Import / Export**: Uses `word,state,level,meaning` columns (`state`: `learning`, `known`, or `ignored`; defaults to `learning`).
+- **CSV Import / Export**: Supports native `word,state,level,meaning` CSV (`state`: `learning`, `known`, or `ignored`) as well as WordByWord exports (`term,meaning,example,term_language,meaning_language,status`, mapping `1-4` to `New` / `Recognized` / `Familiar` / `Learned` and `5` to `Known`).
 - All data stays in local IndexedDB unless exported; export a JSON backup before uninstalling the extension.
 
 ## Development & Verification
