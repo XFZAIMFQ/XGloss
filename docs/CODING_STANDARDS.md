@@ -1,27 +1,27 @@
-# 编码规范
+# Coding Standards
 
-## 语言与命名
+## Language & Naming
 
-- TypeScript strict, 禁止隐式 any, 外部输入以 unknown 接收并校验.
-- 四空格, 110 列, 单引号, 无分号, 由 Prettier 执行.
-- 普通模块使用 kebab-case, Vue 组件使用 PascalCase, 类型使用 PascalCase, 变量与函数使用 camelCase.
-- 使用有业务含义的名字, 注释解释约束, 原因和兼容性.
-- domain 模块保持纯函数, I/O 通过 data, services 和 platform 边界进入.
+- Enable TypeScript `strict` mode; forbid implicit `any`; accept external inputs as `unknown` and validate with Zod schemas at boundaries.
+- Format with 4-space indentation, 110-column line width, single quotes, and no semicolons, enforced by Prettier.
+- Use `kebab-case` for regular TypeScript modules, `PascalCase` for Vue components and types, and `camelCase` for variables and functions.
+- Prefer descriptive domain names; write concise comments explaining constraints, non-obvious invariants, and compatibility requirements rather than restating what code does.
+- Keep `src/domain` pure; all browser API, DOM, network, and IndexedDB I/O belongs in `src/data`, `src/services`, `src/platform`, or feature adapters.
 
-## 数据与异步
+## Data Integrity & Async Boundaries
 
-- 数据库版本升级显式迁移, 导入时先验证完整文件, 再用事务合并.
-- 收藏使用稳定词条键, 遇词记录去重. 重复请求保持一致结果.
-- 异步请求设置超时, 组件销毁时取消或忽略旧结果.
-- 用户可见操作显示进行中, 成功或可处理的错误.
-- 外部释义, PDF 和翻译文本使用文本渲染.
-- 凭据仅由扩展设置页编辑, 日志避免包含密钥, 完整请求头与私人语境.
+- Migrate IndexedDB schemas explicitly across versions; validate entire import payloads before mutating state inside read-write transactions.
+- Store words by normalized keys and deduplicate encounters; coalesce or cache repeated translation requests deterministically.
+- Apply timeouts and `AbortSignal` propagation to async requests; cancel or discard stale async results when views unmount or inputs change.
+- Reflect loading, success, and actionable error states clearly in user-facing operations.
+- Render untrusted external definitions, PDF text, and model translations strictly as plain text (never unescaped HTML).
+- Restrict credential storage and editing to the extension Options page (`options.html`); never log API keys, authorization headers, or private page context.
 
-## 可维护性与性能
+## Maintainability & Performance
 
-- 业务能力按模块组织, 入口仅负责组装生命周期.
-- 界面标签, 状态和错误反馈使用 `src/i18n` 中的消息键. 自有文案使用英文半角标点.
-- 相同业务规则集中实现, 新抽象须由实际调用方驱动.
-- DOM 和 Canvas 资源明确归属, 提供清理路径. 处理长文本时同时限制批次耗时与工作量.
-- Vue 管理交互界面, 网页文本处理保持独立.
-- 修改完成后执行类型检查, lint, 已有回归验证和生产构建. 涉及数据与协议边界时补充必要回归用例.
+- Organize features cleanly into cohesive modules and keep entrypoints focused on lifecycle wiring.
+- Route all UI labels, status text, and user-facing errors through `src/i18n`; use ASCII half-width punctuation for extension-authored Chinese copy.
+- Centralize shared business logic rather than duplicating across web, PDF, or workspace UI; introduce abstractions when driven by concrete callers.
+- Give DOM observers, `Range` collections, PDF `Canvas` buffers, and global event listeners explicit budgets and teardown cleanup paths; chunk long-text scans to avoid blocking frames.
+- Keep Vue responsible for UI state and DOM text processing decoupled in dedicated modules.
+- After making changes, run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build`, adding regression tests when modifying domain logic or protocol boundaries.

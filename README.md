@@ -1,74 +1,109 @@
-# XGloss
+<div align="center">
+  <img src="public/icon/logo.svg" width="72" height="72" alt="XGloss Logo" />
+  <h1>XGloss</h1>
+  <p>
+    <strong>Local-first vocabulary learning for the web.</strong><br />
+    Look up words in context, collect example sentences, and track mastery across websites.
+  </p>
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+    <img src="https://img.shields.io/badge/Platform-Chrome%20%7C%20Edge%20MV3-18181b" alt="Chrome / Edge MV3" />
+    <img src="https://img.shields.io/badge/Stack-Vue%203%20%2B%20TypeScript-41b883" alt="Vue 3 + TypeScript" />
+    <img src="https://img.shields.io/badge/Node.js-%3E%3D%2024-339933" alt="Node.js >= 24" />
+  </p>
+  <p>
+    <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
+  </p>
+</div>
 
-在网页与 PDF 阅读中查词, 积累词汇, 保留原句并追踪掌握状态.
+---
 
-## 安装试用
+## Features
 
-当前环境使用 Node.js 24.13.0 和 npm, 依赖已安装. 生产构建位于 `.output/chrome-mv3`.
+- **Per-Site Web Analysis**: Toggle reading analysis per hostname with instant teardown and restoration across tabs.
+- **Spotlight Highlighting**: Viewport-scoped CSS Custom Highlight API highlighting (`5,000` active range cap) synchronized in real time across open web tabs.
+- **Floating Reading Panel**: Displays reading coverage percentage, frequency-ranked unknown words, estimated coverage gain per word, manual batch refresh, and a **Recall Mode** that hides candidate glosses until revealed.
+- **Flexible Selection Trigger (`Auto` / `Icon` / `Off`)**: Switch directly from the extension toolbar popup between instant popup translation, a compact `26x26` selection trigger icon, or selection-off (panel lookups remain active).
+- **Multi-Language Collections & Active Routing**: Organize vocabulary across 8 languages (`EN`, `JA`, `KO`, `DE`, `FR`, `ES`, `RU`, `IT`), pin collections, pick an active collection in the popup (unidirectionally syncing the default source language), and fine-tune translation direction without mutating collection bindings.
+- **Context-Aware OpenAI-Compatible Translation**:
+    - Configurable **OpenAI-compatible Chat Completions** adapter (with a DeepSeek preset and support for local `http://localhost` models without an API key).
+    - Returns up to 5 context-ranked meanings for words/phrases (preserving chosen meanings per encounter) and full translations for sentences/passages.
+    - Includes a compact per-card bottom-right language switcher on `WordCard` for one-off `source -> target` overrides without modifying global defaults.
+- **Structured Review & GitHub-Style Activity Heatmap**:
+    - Three review modes (`Flashcards`, `Meaning -> Word`, and `Spelling`) filtered by collection and session size (`10` / `20` / `50`).
+    - Inline 4-grade `Learning` (`1-4`), `Known`, and `Ignored` controls, plus a 1-year calendar heatmap tracking daily added, rated, and reviewed words.
+- **Local-First Privacy**: Vocabulary, encounters, and translation caches live in extension-origin IndexedDB; API keys stay restricted to `TRUSTED_CONTEXTS` storage and are only exposed to the Options page.
 
-1. 打开 Chrome 的 `chrome://extensions` 或 Edge 的 `edge://extensions`.
-2. 启用开发者模式, 选择"加载已解压的扩展程序".
-3. 选择项目中的 `.output/chrome-mv3` 目录.
-4. 在普通网页点击 XGloss, 选择"开启 / 关闭当前网页". 选中单词即可查词并收藏.
-5. 从弹窗进入 PDF 阅读器, 打开本地文件或填写在线 PDF 链接.
+## Getting Started
 
-网页与 PDF 共用本地词库, 提供学习中, 已掌握, 忽略三种状态. 右下角面板显示当前分析范围的词汇覆盖率, 高频词和预计覆盖率增量.
+### Prerequisites
 
-## 复习与统计
+- Node.js `>= 24` and `npm`
+- Chromium-based browser (Chrome or Microsoft Edge, Manifest V3)
 
-从左侧导航进入"复习训练", 选择单词闪卡, 词义回忆或拼写练习. 练习使用学习中的本地词条, 标记掌握后会更新网页与 PDF 的词汇状态.
-
-"学习统计"展示词汇状态分布, 最近更新和按词条最后修改日期汇总的日历.
-
-## 翻译配置
-
-在"翻译设置"点"使用 DeepSeek 预设", 填入 API Key 并保存授权. 也可以填写其他 OpenAI-compatible 服务的 Base URL 和模型名称.
-
-```text
-Base URL      https://your-provider.example/v1
-模型名称       服务商提供的模型 ID
-```
-
-程序请求 `POST {baseUrl}/chat/completions`, 使用 Bearer 认证与 `model`,`messages`,`stream=false`. 本机模型可填写 `http://localhost:端口/v1`, API Key 可留空.
-
-配置服务后, 打开词卡会自动查词. 单词和短语显示按原句语境排序的候选译义, 默认选中首项. 可先改选, 再标记熟悉度并保存译义. 选中完整句子或段落会直接显示译文. 高频词表只显示语境首选, 与词卡共用持久化缓存. 服务未配置或请求失败时, 单词可继续使用本地词典.
-
-在线查询会将选中文字和可用原句发送给已配置的服务. 服务需要在 Chat Completions 的 `choices[0].message.content` 中返回符合提示的 JSON 字符串.
-
-API Key 保存在本机受限的扩展配置中. 词库导出包含单词和遇词记录, 配置单独保存.
-
-## 本地数据
-
-- 词库页支持搜索, 手动添加词条与更改状态.
-- JSON 备份保留词汇状态及遇词语境, 导入时合并并保留较新的状态.
-- CSV 词表使用 `word,state` 列. state 可填写 `learning`,`known`,`ignored`, 省略时默认学习中.
-- 词库与阅读位置存入本机 IndexedDB. 卸载扩展前可导出 JSON 备份.
-
-## 开发命令
+### Build & Load the Extension
 
 ```powershell
 npm ci
-npm run dev
-npm run typecheck
-npm run lint
-npm test
-npm run format:check
 npm run build
-npm run test:browser
-npm run zip
 ```
 
-`npm run dev` 启动开发构建. 生产构建与浏览器验证使用 `.output/chrome-mv3`.
+1. Open `chrome://extensions` in Chrome (or `edge://extensions` in Edge).
+2. Enable **Developer mode**.
+3. Click **Load unpacked** and select the generated `.output/chrome-mv3` directory.
+4. Click the XGloss toolbar icon on any webpage to toggle site analysis, adjust selection trigger mode (`Auto` / `Icon` / `Off`), pick your active collection / translation direction, or open your **Library** and **Translation Settings**.
 
-浏览器验证需要独立 Chromium, 可通过 `npx playwright install chromium` 准备. 验证脚本使用独立配置目录, 本机 HTTP fixture 与模拟翻译服务, 并在测试副本中预先授权 fixture 来源. 测试截图和临时数据保存在 `.cache`.
+## Translation Configuration
 
-离线词典已包含 44,688 个常用英汉词条, 资源来源与固定版本记录在 `public/dictionary/source.json`. 可执行 `npm run dictionary:prepare` 重新生成, 首次生成需要下载源 CSV, 缓存位于 `.cache`. PDF 字体, CMap 和 WASM 资源通过 `npm run pdf:prepare` 准备.
+Open **Translation Settings** (`options.html`) from the sidebar or popup gear icon:
 
-## 工程说明
+1. Click **Use DeepSeek Preset** (or enter any OpenAI-compatible provider details):
+    - **Base URL**: API root such as `https://api.deepseek.com` or `https://your-provider.example/v1` (local services can use `http://localhost:<port>/v1`).
+    - **API Key**: Stored in extension-restricted storage; leave empty for unauthenticated local models.
+    - **Model**: Model ID supported by your provider.
+    - **Target Language** & **Timeout (ms)**: Defaults to Simplified Chinese (`30000 ms`).
+2. Click **Save & Authorize** to grant host permission for the API origin, and optionally **Test Contextual Translation**.
 
-- [工程结构与模块边界](docs/ARCHITECTURE.md)
-- [编码规范](docs/CODING_STANDARDS.md)
-- [当前实现与验证范围](docs/IMPLEMENTATION_STATUS.md)
-- [产品规划](PROJECT_PLAN.md)
+XGloss sends `POST {baseUrl}/chat/completions` with `model`, `temperature: 0.1`, `messages`, and `stream: false`, expecting JSON in `choices[0].message.content`. Both `WordCard` and `ReadingPanel` share an IndexedDB translation cache (`version: 4` keyed by configuration, source/target languages, selection text, and sentence context).
 
-ECDICT 与 PDF.js 的许可及随附资源许可保留在 `public/dictionary` 和 `public/pdf`, 构建时一起打包.
+## Data & Backup
+
+- **Library Page (`library.html`)**: Manage collections (create, edit, pin), search/filter words, inspect historical encounters and contexts, edit custom meanings, and adjust ratings inline.
+- **JSON v2 Export / Import**: Preserves collections, words, saved meanings, encounter contexts, and learning activities; imports merge while keeping newer word states and unioning history. Backward compatible with JSON v1 backups.
+- **CSV Import / Export**: Uses `word,state,level,meaning` columns (`state`: `learning`, `known`, or `ignored`; defaults to `learning`).
+- All data stays in local IndexedDB unless exported; export a JSON backup before uninstalling the extension.
+
+## Development & Verification
+
+```powershell
+npm ci                  # Install dependencies
+npm run dev             # Start WXT development build
+npm run typecheck       # Run vue-tsc --noEmit
+npm run lint            # Run ESLint across src, scripts, tests, wxt.config.ts
+npm run format:check    # Verify formatting with Prettier
+npm test                # Run Vitest unit & IndexedDB tests
+npm run build           # Produce .output/chrome-mv3 production bundle
+npm run test:browser    # Run Playwright Chromium end-to-end smoke suite
+npm run zip             # Package extension archive into .output/
+```
+
+For browser smoke testing, ensure Playwright Chromium is installed (`npx playwright install chromium`). The smoke suite (`tests/browser-smoke.mjs`) launches Chromium against `.output/chrome-mv3` with a local HTTP article fixture, a mock Chat Completions server, and isolated temporary profiles/screenshots written under `.cache/`.
+
+## Documentation
+
+- [Architecture & Module Boundaries](docs/ARCHITECTURE.md)
+- [Coding Standards](docs/CODING_STANDARDS.md)
+- [Implementation Status & Benchmarks](docs/IMPLEMENTATION_STATUS.md)
+- [Product Plan & Research Notes](PROJECT_PLAN.md)
+- [Repository Agent Guidelines](AGENTS.md)
+
+## Third-Party Licenses & Credits
+
+Bundled third-party fonts and icons retain their respective licenses and are packaged into builds:
+
+- **Lucide Icons**: [public/licenses/Lucide-LICENSE.txt](public/licenses/Lucide-LICENSE.txt)
+- **Nunito Font**: [public/licenses/Nunito-OFL.txt](public/licenses/Nunito-OFL.txt)
+
+## License
+
+Released under the [MIT License](LICENSE).

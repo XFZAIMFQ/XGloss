@@ -4,7 +4,6 @@ import type {
     Backup,
     CollectionLanguage,
     DefinitionMode,
-    DictionaryEntry,
     Encounter,
     LearningActivity,
     PdfBookmark,
@@ -57,9 +56,8 @@ export interface Operations {
     encounterMeaning: { input: { text: string; source: WordSource }; output: string | undefined }
     wordDetails: {
         input: string[]
-        output: { key: string; entry: DictionaryEntry | null; encounter?: Encounter }[]
+        output: { key: string; encounter?: Encounter }[]
     }
-    lookup: { input: string; output: DictionaryEntry | null }
     translationAvailable: { input: undefined; output: boolean }
     openTranslationSettings: { input: undefined; output: null }
     translate: { input: TranslationInput; output: TranslationResult }

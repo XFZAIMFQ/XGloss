@@ -1,57 +1,63 @@
-# 工程结构
+# Project Architecture
 
 ```text
 src/
-  domain/             词汇, 分词, 统计与运行时数据契约
-  data/               扩展源 IndexedDB 和受限配置存储
-  services/           查词, 兼容翻译与后台业务处理
-  platform/           类型化扩展消息
+  domain/             Vocabulary, tokenization, collections, statistics, and runtime contracts
+  data/               Extension-origin IndexedDB and restricted settings storage
+  services/           OpenAI-compatible translation and background handler
+  platform/           Typed extension runtime messaging
   features/
-    web/              网页分片扫描与视口高亮
-    pdf/              PDF.js 页级生命周期
-  components/         共用词卡与阅读面板
-  i18n/               界面文案与错误消息的类型化语言目录
-  assets/             共用界面样式
-  entrypoints/        后台, 内容脚本, 弹窗, 设置, 词库, PDF 阅读器
-scripts/              资源准备工具
-tests/                数据一致性与服务协议回归验证
-public/               随扩展打包的词典资源与许可
+    web/              Web page chunked scanning and viewport highlighting
+    pdf/              PDF.js page-level rendering and extraction lifecycle
+  components/         Shared WordCard, ReadingPanel, ShadcnSelect, and workspace components
+  i18n/               Typed UI copy and error message catalog
+  assets/             Shared UI stylesheets (including ui.css injected into web Shadow DOM)
+  entrypoints/        Background worker, content script, popup, options, library, and PDF reader
+scripts/              Asset preparation scripts (PDF.js runtime)
+tests/                Domain, storage, translation protocol, and browser smoke verification
+public/               Bundled icons and third-party licenses
 ```
 
-## 数据流
+## Data Flow
 
-内容脚本和阅读器从原始文本提取 token, 再按同一套词汇状态计算词频及覆盖率. 遇词位置保留源信息, 词汇状态按归一化后的英语词条共享.
+Both the web content script and the PDF reader extract tokens from raw text and compute word frequencies and reading coverage against the same vocabulary state. Encounter locations retain source metadata, and vocabulary states are shared globally by normalized term key.
 
-所有持久化写入经过后台业务处理器, IndexedDB 事务同时更新词条, 遇词记录与学习事件. 界面收到成功回复后更新状态. 后台通知其他标签页重新读取词汇, PDF 页和网页共享更新. 学习中包含四档等级, 旧记录按第 1 级读取. 覆盖率仍以已掌握词次计算, 忽略词次从分母移除.
+All persistent mutations pass through the background handler (`src/services/background-handler.ts`). Extension-origin IndexedDB transactions (schema v3, adding the `collections` store) atomically update `words`, `encounters`, and `activities`. UI surfaces update after receiving confirmed responses, and background broadcasts (`vocabularyChanged`, `siteReadingChanged`, `spotlightChanged`, `candidateRecallChanged`, `selectionTriggerChanged`, `translationLanguagesChanged`, `activeCollectionChanged`) keep open PDF pages, web tabs, and extension pages synchronized.
 
-后台向内容脚本提供词汇状态, 查词结果和无凭据的阅读偏好. 翻译服务参数和默认释义详简的写入只允许设置页调用. chrome.storage.local 访问级别设置为 TRUSTED_CONTEXTS, 持久化 API Key 位于受限配置中.
+Vocabulary supports `learning` grades `1-4` (legacy ungraded records read as level `1`), `known`, and `ignored`. Reading coverage is computed from `known` token occurrences divided by non-ignored valid tokens. Words can be organized into multi-language `VocabularyCollection` records across 8 languages (`en`, `ja`, `ko`, `de`, `fr`, `es`, `ru`, `it`). Newly rated words default to the stored `activeCollectionId` (falling back to the top sorted collection), while re-rating an existing word preserves its current collection unless explicitly reassigned.
 
-词库分页加载当前页释义及最近遇词记录. 词卡保存熟悉度时同时保存所选义项, 词条展示最近一次选择, 每条遇词记录保留各自的选择. 词库和复习优先展示已选义项. 学习日历按本地日期聚合不同词条数, 新增, 改级和完成复习均保留独立历史. JSON v2 备份包含遇词记录与活动, CSV 导出包含词条的已选义项. 继续读取旧 JSON 备份和 CSV. 书签和阅读进度按 PDF 指纹单独保存在本机.
+The background handler serves vocabulary state and non-credential reading preferences (`selectionTrigger`, `translationLanguages`, `spotlight`, `recallCandidateMeanings`) to content scripts. Privileged operations (`setSelectionTrigger`, `setTranslationLanguages`, `activeCollection`, `setActiveCollection`, collection/word management, export/import, statistics) require extension pages (`extensionOnly`), while API credentials and card display settings (`settings`, `saveSettings`, `saveDefinitionMode`) are strictly restricted to `options.html` (`optionsOnly`). Persistent storage uses `chrome.storage.local` configured at `TRUSTED_CONTEXTS` access level so API keys never leave restricted extension storage.
 
-## 翻译协议
+The Library workspace loads paginated meanings and recent encounters, lets users manage collections and edit/delete words inline, and renders a local-date activity heatmap tracking `added`, `rated`, and `reviewed` events. JSON v2 backups export collections, words, saved meanings, encounters, and activities while maintaining backwards compatibility with JSON v1 and CSV (`word,state,level,meaning`) imports. PDF bookmarks and last-read pages are persisted locally by document fingerprint.
 
-Base URL 表示 API 根路径, 例如 https://example.com/v1. 使用 POST {baseUrl}/chat/completions, 提交 model, messages 和 stream=false. Authorization 使用 Bearer, 密钥可留空以兼容本机服务. 设置页的 DeepSeek 预设填入官方端点和 deepseek-flash. 仅官方端点使用 DeepSeek 的 JSON 输出与非思考模式参数.
+## Translation Protocol
 
-词卡在打开时按选区和可选的上下文请求翻译. 单词和短语按语境排序显示最多五个候选译义. 句子和段落展示完整译文. 服务返回的 JSON 字符串通过运行时校验, 译文以普通文本渲染. 简洁和详细模式共用一个结果, 详细模式额外显示可用词性, 音标和原句.
+`Base URL` specifies the API root, such as `https://example.com/v1`. Requests are sent via `POST {baseUrl}/chat/completions` with `model`, `messages`, and `stream: false`. Authorization uses a Bearer header (optional API key so unauthenticated local `http://localhost` services work without credentials). The Options page provides a DeepSeek preset configured with the official endpoint and `deepseek-flash`; DeepSeek JSON output and non-thinking parameters are only attached to the official DeepSeek origin.
 
-词卡和高频词表共用选词翻译. 高频词表使用首个候选译义, 仅查询已展开面板里进入可见范围的词条, 单个面板最多并行查询 5 个词. 回想模式在用户揭示某一行时才查该词. 服务未配置或失败时, 查词回退到本地词典.
+When a `WordCard` opens (or when switching language direction via its per-card bottom-right switcher), translation runs with the selection and optional sentence context:
 
-后台用协议版本, 翻译配置指纹, 选中文字和原句生成缓存键. 成功结果完整保存在 IndexedDB, 供高频词表和词卡跨页面重用. 同键的并发查询共用一次网络请求, 所有等待者都取消时中止该请求. 旧纯文本缓存保留在数据库内, 结构化结果使用独立的缓存键.
+- Words and phrases receive up to 5 context-ranked candidate glosses (`kind: "meanings"`), saving the chosen gloss per encounter without mutating global language defaults on per-card overrides.
+- Clauses, sentences, and passages receive a full text translation (`kind: "text"`).
+- Responses are validated with Zod schemas and rendered strictly as plain text. `Simple` and `Detailed` definition modes share the same cached response, with `Detailed` additionally showing part of speech, phonetics, and source context when available.
 
-一次调用有超时, 后台最多同时发起 6 个不同的在线翻译请求, 缓存写入失败仍可返回翻译结果. 用户可编辑已有配置并测试连接. 远端 HTTPS 与本机 HTTP 服务均通过用户操作申请来源权限.
+The Popup's active-collection selector unidirectionally updates the global default `sourceLanguage` to match the selected collection's language, while allowing independent overrides of `sourceLanguage` and `targetLanguage` in global preferences. `ReadingPanel` shares `translateSelection` with `WordCard`, displaying only the top context-ranked gloss for visible rows in expanded panels (up to 5 concurrent lookups per panel; in Recall Mode, lookups defer until revealed).
 
-## 界面文案
+The background cache computes a `version: 4` SHA-256 key from provider configuration, effective `sourceLanguage` / `targetLanguage`, normalized selection text, and sentence context. Requests use `temperature: 0.1` and explicit target-language constraints to prevent source-phrase echoing. Concurrent requests sharing the same cache key coalesce onto a single upstream request, aborting upstream only when all waiting consumers cancel. Requests enforce per-call timeouts, a global cap of 6 concurrent upstream translations, and tolerate cache write failures without failing the returned translation. Origin permissions for both remote HTTPS providers and local HTTP servers are explicitly requested on user action.
 
-界面标题, 控件标签, 辅助功能名称和扩展报错统一从 `src/i18n/zh-CN.ts` 获取. `t()` 在编译时检查消息键和插值参数. 当前界面使用简体中文. 文案, 本地词典释义和在线译文使用英文半角标点. 原文选区, 遇词记录和第三方资源保留原标点.
+## UI Copy & Shared Shadow DOM Styles
 
-## 网页与 PDF 生命周期
+All visible labels, accessibility strings, and extension error messages are typed and centralized in `src/i18n/zh-CN.ts`, checked at compile time by `t()`. UI copy and online translations enforce ASCII half-width punctuation, while captured source selections and encounters preserve original source punctuation.
 
-支持扩展访问的 HTTP(S) 网页默认分析, 内容脚本在启动扫描前读取网站偏好. 扩展菜单按主机名切换分析. 站点停用时释放面板, 词卡, 观察器和高亮, 轻量的内容脚本监听继续接收恢复通知. Spotlight 是本机全局偏好, 已打开的网页和 PDF 同步应用, 只控制高亮. 网页初始发现与增量扫描均按时间和节点数分片. 每个文本块保留词频摘要, 活动高亮仅覆盖视口及附近区域, 并有范围数量上限. MutationObserver 将变化加入队列, 移除节点释放引用.
+`WebReader` mounts inside an open Shadow DOM (`#xgloss-root`) injected with `src/assets/ui.css?inline` only. Shared controls rendered both in webpages and extension pages (`WordCard`, `ReadingPanel`, `SelectionTriggerIcon`, `ShadcnSelect`, `LanguageFlag`, `BrandLogo`) keep their styles in `src/assets/ui.css` rather than component `<style scoped>` blocks so styling stays consistent inside webpage Shadow Roots.
 
-网页和 PDF 共用阅读面板. 覆盖率和词汇状态随当前词库变化, 高频词表在首次展开时取一批, 只有手动刷新或切换阅读来源才替换这批词. 回想模式是本机全局偏好, 首次激活词条按需揭示释义, 再次激活打开词卡. 词卡以选区末端或候选行作锚, 使用视口边界和实际内容高度定位. 观察和事件监听随浮层关闭清理, 滚动或尺寸变化时每帧最多定位一次.
+## Web & PDF Lifecycle
 
-PDF.js Worker 解析文档, PDF.js Viewer 管理连续或分页, 单页或双页的阅读布局和可见页渲染队列. 单个主 Canvas 限制在 800 万像素, PDF.js 可为高倍缩放绘制局部画布. 词汇高亮只处理视口附近已渲染的文字层, 并共享 5,000 个 Range 上限. 后台统计逐页推进, 词卡从选中内容所在页读取原句. 切换文件或退出时取消旧任务, 移除高亮和观察器. 大文件仍受单页复杂度, 解码和文件本身大小影响.
+Accessible HTTP(S) pages run lightweight content-script listeners and read per-hostname `siteReading` preferences before mounting analysis. When disabled for a hostname, the active panel, word card, trigger icon, observers, and highlights tear down immediately while retaining the lightweight restoration listener. Spotlight highlighting, Recall Mode, and `selectionTrigger` (`'auto' | 'icon' | 'off'`) are extension-wide local preferences applied across open web tabs and PDFs. Clicking candidates inside `ReadingPanel` always opens `WordCard` regardless of `selectionTrigger`.
 
-## 实施范围
+Web scanning partitions initial discovery and incremental DOM mutations by time and node budgets, retaining compact chunk summaries and capping active CSS Highlights at `5,000` ranges near the viewport. Removed nodes drop cached references cleanly via `MutationObserver`.
 
-当前阶段实现网页, 带文字层 PDF, 本地词库和可配置在线翻译. 扫描 PDF 的 OCR, 欧路同步及更多语言保留后续接口演进空间.
+PDF.js parses documents in a dedicated worker and manages single/two-page and continuous/paginated layouts with visible-page rendering queues, capping main canvas size at 8,000,000 pixels and sharing the 5,000-range highlight budget across nearby rendered text layers. Background page statistics scan incrementally and preserve last-read progress and bookmarks per PDF fingerprint. Large files remain subject to per-page vector/text complexity, decoding time, and overall file size.
+
+## Current Scope
+
+This implementation covers web pages, text-layer PDFs, multi-language local vocabulary management, 3-mode selection triggering, contextual OpenAI-compatible translation with per-card overrides, review sessions, and activity statistics. Scanned PDF OCR, external sync adapters (e.g., Eudic), and additional UI locales remain open for future extension.

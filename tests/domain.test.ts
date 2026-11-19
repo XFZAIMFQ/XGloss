@@ -8,7 +8,7 @@ import {
     tokenize,
 } from '../src/domain/vocabulary'
 import { parseWordCsv } from '../src/domain/csv'
-import { dictionaryMeanings } from '../src/domain/definitions'
+import { halfWidthPunctuation } from '../src/domain/definitions'
 import { activityStreaks, localDay, summarizeActivity } from '../src/domain/activity'
 import {
     activeCollectionId,
@@ -80,27 +80,11 @@ describe('CSV import', () => {
     })
 })
 
-describe('dictionary presentation', () => {
-    it('strips known part-of-speech labels and merges duplicate glosses only in simple mode', () => {
-        const entry = {
-            word: 'hereafter',
-            phonetic: '',
-            definition: '',
-            exchange: '',
-            translation: 'n. 将来, 来世\nadv. 此后, 将来, 来世\n[法] 以后',
-        }
-        expect(dictionaryMeanings(entry, 'simple')).toEqual(['将来', '来世', '此后', '[法] 以后'])
-        expect(dictionaryMeanings(entry, 'detailed')[0]).toBe('n. 将来, 来世')
-    })
-    it('normalizes punctuation without splitting a gloss inside brackets', () => {
-        const entry = {
-            word: 'run',
-            phonetic: '',
-            definition: '',
-            exchange: '',
-            translation: 'v. 运行\uff08程序\u3001系统\uff09\uff0c跑步',
-        }
-        expect(dictionaryMeanings(entry, 'simple')).toEqual(['运行(程序,系统)', '跑步'])
+describe('text normalization and context', () => {
+    it('normalizes full-width punctuation to ASCII half-width equivalents', () => {
+        expect(halfWidthPunctuation('运行\uff08程序\u3001系统\uff09\uff0c跑步\u3002')).toBe(
+            '运行(程序,系统),跑步.',
+        )
     })
     it('uses the selected occurrence to disambiguate repeated words', () => {
         const text = 'Read the hardware register. Then register an account.'

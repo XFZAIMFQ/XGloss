@@ -35,12 +35,14 @@ describe('OpenAI-compatible translation', () => {
         expect(init.headers.Authorization).toBe('Bearer test-key')
         const body = JSON.parse(init.body)
         expect(body.stream).toBe(false)
+        expect(body.temperature).toBe(0.1)
         expect(body.model).toBe('custom-model')
         expect(JSON.parse(body.messages[1].content)).toEqual({
             selectedText: word.text,
             context: word.context,
         })
         expect(body.messages[0].content).toContain('fits the supplied context first')
+        expect(body.messages[0].content).toContain('Do not copy or repeat')
         expect(body).not.toHaveProperty('response_format')
         expect(body).not.toHaveProperty('thinking')
     })

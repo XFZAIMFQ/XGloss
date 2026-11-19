@@ -1,6 +1,7 @@
 {
     "name": "xgloss",
-    "description": "Local-first vocabulary learning for web pages and PDFs",
+    "description": "Local-first vocabulary learning for the web",
+    "license": "MIT",
     "private": true,
     "version": "0.1.0",
     "type": "module",
@@ -17,7 +18,6 @@
         "format": "prettier --write src scripts tests *.json *.ts *.md docs",
         "format:check": "prettier --check src scripts tests *.json *.ts *.md docs",
         "test": "vitest run",
-        "dictionary:prepare": "node scripts/prepare-dictionary.mjs",
         "pdf:prepare": "node scripts/prepare-pdf.mjs",
         "test:browser": "node tests/browser-smoke.mjs"
     },

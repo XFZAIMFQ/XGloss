@@ -22,7 +22,6 @@ import {
     Trash2,
 } from '@lucide/vue'
 import { parseWordCsv } from '../../domain/csv'
-import { dictionaryMeanings } from '../../domain/definitions'
 import { languageInfo, languageOptions, sortCollections, wordCollectionId } from '../../domain/collections'
 import { normalizeWord } from '../../domain/vocabulary'
 import {
@@ -147,12 +146,7 @@ function ratingValue(word: Word) {
 }
 
 function meaningFor(word: Word) {
-    return (
-        word.meaning ??
-        dictionaryMeanings(details.value.get(word.key)?.entry ?? null, 'simple')
-            .slice(0, 3)
-            .join(' / ')
-    )
+    return word.meaning ?? details.value.get(word.key)?.encounter?.meaning ?? ''
 }
 
 const filtered = computed(() => {

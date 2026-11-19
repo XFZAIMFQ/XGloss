@@ -1,84 +1,53 @@
-# 实现与验证记录
+# Implementation Status & Verification Log
 
-## 2026-11-18 译义选择与高频词翻译
+## 2026-11-19 Shadcn UI Redesign, Trigger Modes & Multi-Language Controls
 
-- 词卡默认选中首个译义, 标记熟悉度时保存当前选择. 词库和复习优先显示已选译义, 遇词记录分别保留各自的译义. JSON 和 CSV 继续兼容无译义的旧数据.
-- 高频词表只展示语境首选, 按可见范围或回想模式下的主动揭示查询. 词卡与高频词表共用 IndexedDB 翻译缓存.
-- Chromium 使用本机模拟服务验证默认选中首项, 改选后保存与重开恢复, 高频词预览只展示首项, 面板和词卡查同一词与原句仅产生一次服务请求, 同时发起两次相同查询也仅产生一次服务请求.
-- Chromium 回归确认推荐图标位于译义按钮内, 改选后仍标记首选项. 本机延迟响应的模拟服务观测到单个高频词表同时发起 5 个不同的翻译请求.
+- Removed the bundled offline ECDICT dictionary (`public/dictionary/`, `scripts/prepare-dictionary.mjs`, `src/services/dictionary.ts`) to reduce bundle size and rely on contextual online translation + saved word meanings; tightened the translation prompt with `temperature: 0.1`, explicit anti-source-echo rules, and cache `version: 4`.
 
-## 2026-11-18 语境查词与整段翻译
+- Redesigned extension pages (`library.html`, `options.html`, `popup.html`, `reader.html`) around a unified shadcn/ui Zinc aesthetic with a dedicated navigation shell, brand prism SVG logo ([logo.svg](../public/icon/logo.svg)), and bundled icons/fonts.
+- Upgraded IndexedDB to schema v3 with `VocabularyCollection` management across 8 languages (`EN`, `JA`, `KO`, `DE`, `FR`, `ES`, `RU`, `IT`), collection pinning, inline word editing/deletion modals, and a 1-year GitHub-style daily learning activity heatmap.
+- Replaced native `<select>` controls in Library filters, Review filters (fixing the filter label vertical misalignment), Settings (Default Definition Mode), Popup, and `WordCard` with unified `ShadcnSelect` and `LanguageFlag` components whose shared styles live in `ui.css` so they work inside webpage Shadow DOM (`#xgloss-root`).
+- Added a 3-mode global selection trigger (`auto`, `icon`, `off`) in Popup (`SelectionTriggerIcon.vue` renders a compact `26x26` trigger icon near selections in `icon` mode without sending translation requests until clicked; `off` ignores text selection while leaving `ReadingPanel` word clicks active).
+- Added Popup Active Collection (routing newly rated words with unidirectional `sourceLanguage` sync) and Translation Direction (`source -> target`) controls, plus a bottom-right per-card temporary language switcher capsule and upward popover on `WordCard` (layered `Escape` dismissal, `version: 3` translation cache key).
+- Verified with `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test` (31/31 unit tests passing across domain, repository v3 migration, and OpenAI translation v3 cache/prompt tests), `npm run build`, and Playwright Chromium smoke tests (`tests/browser-smoke.mjs`) covering Popup controls, 3 trigger modes, webpage Shadow DOM card dropdowns, 2,000-paragraph web pages, and 300-page PDF workflows.
 
-- 设置页增加 DeepSeek 预设. 网页和 PDF 词卡自动加载按语境排序的候选译义, 选中整句或段落时显示完整译文. 简洁和详细模式复用同一个在线结果. 服务失败时, 单词词卡保留本地词典释义和重试入口.
-- 界面文案与错误消息迁入简体中文语言目录. 自有文案, 本地词典释义和在线译文使用半角标点.
-- 用 DeepSeek 实际接口验证硬件语境中 `register` 的四个候选译义, 以及含中断标志的完整句子翻译. 独立 Chromium 加载构建产物, 通过模拟服务覆盖网页与 PDF 选区, 本地词典回退, 详简切换和缓存复用.
+## 2026-11-18 Meaning Selection & Panel Previews
 
-## 2026-11-18 网页分析与回想模式
+- Pre-selected the first context-ranked meaning in `WordCard` and persisted the user's chosen gloss per encounter while preserving word-level fallback meanings; kept JSON and CSV backwards compatibility for entries without stored meanings.
+- Shared the IndexedDB translation cache between `WordCard` and `ReadingPanel`; panel candidate rows fetch only top context meanings for visible rows (up to 5 concurrent requests per panel) or lazily on reveal in Recall Mode.
+- Verified in isolated Chromium against a local mock service: default selection persistence across reopens, shared context cache reuse (1 request across panel + card and deduplicated concurrent requests), inline recommended sparkles badge, and 5-way parallel panel fetches.
 
-- 通过声明式内容脚本自动分析允许访问的 HTTP(S) 网页. 扩展菜单按主机名停用或恢复分析, 网页运行期间的切换和重新加载均读取同一份设置.
-- Spotlight 和分析设置独立. 网页和 PDF 的面板与词卡同步使用本机全局高亮偏好, 初始默认开启.
-- 高频词表默认显示释义. 开启回想模式后, 点击词条或按 Enter 揭示该词, 再次操作进入词卡. 偏好保存在本机, 网页和 PDF 共用.
-- Chromium 回归使用两个独立主机名, 包括非安全上下文的普通 HTTP 页面. 验证自动启动, 停用后清理, 重载后的持久化, 另一网站继续分析, 两个网站和 PDF 间的 Spotlight 同步, 以及回想模式逐词揭示和关闭恢复.
+## 2026-11-18 Contextual Word Lookup & Passage Translation
 
-## 2026-11-18 阅读浮层优化
+- Added the DeepSeek preset to Options. Web and PDF `WordCard` load context-ranked glosses for words/phrases and full text translations for sentences/passages, sharing one response across `Simple` and `Detailed` modes and falling back to ECDICT offline definitions on failure.
+- Consolidated UI copy and error strings into `zh-CN` using half-width ASCII punctuation across UI messages, local glosses, and normalized translations.
+- Validated against live DeepSeek API (`register` in hardware context returning 4 ranked meanings and full-sentence hardware interrupt translation) and isolated Chromium smoke tests covering web/PDF selections, dictionary fallback, mode toggle, and cache reuse.
 
-- 阅读入口静置只显示覆盖率, 悬停或键盘聚焦展示难度与生词数. 展开面板顶部提供 Spotlight 和收起. 高频词表保留已评级的词以及列表位置, 点击刷新才按最新词库替换名单.
-- 网页和 PDF 词卡在选区或候选词旁打开. 简洁释义首屏展示最多四项, 可展开更多. 朗读, 详简和关闭集中在标题行, 等级和在线语境释义集中在底部.
-- 独立 Chromium 回归覆盖百分比入口, 键盘展开, Spotlight, 高频词评分与更正, 收起恢复, 手动刷新, 视口底部词卡上翻, 390 px 窄屏和双页 PDF 右页选词. 已对比测试截图. Raspberry Pi 文档在隔离浏览器返回 403, 使用包含 `package` 的本地测试页验证该词的简洁释义和定位.
+## 2026-11-18 Per-Site Web Analysis & Recall Mode
 
-## 2026-11-18 功能迭代
+- Enabled declarative content-script auto-analysis for permitted HTTP(S) websites with per-hostname toggles stored locally and live teardown/restoration on open tabs.
+- Synced Spotlight highlighting and Recall Mode preferences globally across multiple web origins (including non-secure HTTP origins) and the PDF reader.
+- Verified in Chromium across two distinct hostnames: auto-attach, site disable teardown, persistence across reload, cross-tab Spotlight synchronization, and Recall Mode per-row reveal and reset.
 
-- 网页和 PDF 共用四档学习等级与配色. 旧词条的学习状态按 1 级读取. 阅读收藏可分页浏览, 查看释义和原句, 就地调整等级. JSON v2 保存活动和等级, 继续导入旧 JSON 和 CSV.
-- 学习日历按不同词条数显示每日活动, 可查看新增, 改级和复习明细. 历史从升级后开始记录.
-- 词卡默认展示简洁释义, 设置页可更改. 词卡内可临时切换.
-- PDF.js Viewer 支持单页, 双页, 连续滚动和分页. 文档目录可跳转, 手动书签及上次页码按文档保存.
-- 独立 Chromium 使用 2,000 段网页, 300 页合成 PDF 和本机模拟翻译服务验证. 覆盖学习等级写入, 收藏集改级, 活动日历, 双页右页选词的第 2 页来源, 分页滚轮, 目录跳转, 书签与阅读页码恢复, 旋转后文字层和画布对齐. 被测网页在滚动后抽样得到 344 个高亮范围.
-- 另用 [Mozilla PDF.js 公开论文样本](https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf) 验证 14 页真实文档. 在本机无界面 Chromium, 1440×1000 视口, 上传本地文件后首次可见文字层约 1.00 秒, 跳到第 10 页约 0.44 秒, 执行双页切换及滚动后分别观察到 10 个 Canvas. 这些是单轮自动化测量, 包含浏览器操作开销. 更大规模的复杂手册, 滚动帧耗时, 内存趋势和 Chrome 原生对比仍待测试.
+## 2026-11-18 Floating Reader Polish
 
-## 2026-11-17 首个可运行版本
+- Compacted the resting Reading Panel badge to a coverage pill expanding on hover/focus, moved header controls (`Spotlight`, collapse) inline, kept rated batch positions until manual refresh, capped visible card glosses in `Simple` mode with expandable overflow, and anchored toolbar actions cleanly.
+- Verified in Chromium across keyboard expansion, viewport bottom flip (`#edge-word` under HTTP 503), `390px` mobile width, two-page spread PDF right-page selection, and screenshot comparisons. (Raspberry Pi docs returned HTTP 403 inside the isolated sandbox, so `#edge-word` local fixture was added.)
 
-记录日期为 2026-11-17, 版本 0.1.0.
+## 2026-11-18 Learning Grades, Activity Calendar & Multi-Page PDF Layouts
 
-## 界面更新
+- Introduced 4-level learning grades shared between web and PDF, paginated collection browsing with inline rating adjustments, JSON v2 exports with encounter and activity histories, local-date activity statistics calendars, card default mode settings, and PDF.js Viewer single/two-page layouts, outline navigation, bookmarks, and per-document progress restore.
+- Verified in isolated Chromium against a 2,000-paragraph page (344 sampled viewport highlight ranges after scroll) and a 300-page synthetic PDF (page-2 source capture in two-page spread, scrolling, outline jumps, bookmarks, rotated text-layer alignment, and reload progress restoration).
+- Tested a real 14-page document ([Mozilla PDF.js public paper sample](https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf)) in headless Chromium (`1440x1000`): first text layer visible in ~1.00s after local file upload, jump to page 10 in ~0.44s, and 10 canvases observed after two-page toggle and scrolling (single-run automated timings including browser overhead; larger complex manuals, scroll frame timings, memory trends, and side-by-side comparisons against native Chrome remain unmeasured).
 
-参考 example 中的四张截图统一了浅灰紫背景, 深蓝文字, 黄绿色按钮, 大圆角卡片与固定侧栏. 字体 Nunito 与图标 Lucide 随扩展本地打包.
+## 2026-11-17 Initial Runnable Release (`0.1.0`)
 
-词库, 复习, 统计, 翻译设置与阅读面板采用共用视觉变量. ui.css 保存基础控件与阅读浮层, workspace.css 保存工作区布局, learning.css 保存复习和统计样式.
+- Scaffolded strict TypeScript + WXT + Vue 3 extension with npm lockfile, coding standards, local ECDICT dictionary sharded into 44,688 entries, local & online PDF.js reader, chunked web highlighter, JSON/CSV import/export, OpenAI-compatible translation adapter, and Playwright Chromium smoke harness producing `.output/xgloss-0.1.0-chrome.zip`.
 
-增加了闪卡, 词义回忆, 拼写三种基础复习, 复习结果写回本地词汇状态. 统计日历根据词条最近修改日期汇总, 后续可增加独立学习事件记录.
+## Remaining Roadmap & Open Items
 
-浏览器回归覆盖三种复习流程, 统计导航, 390px 窄屏布局和页面截图检查.
-
-## 已实现
-
-- WXT, Vue 3 和 TypeScript 严格模式工程, 使用 npm 锁文件.
-- 分层目录, 工程边界, ESLint, Prettier 和开发规范.
-- 网页手动启停, 选词, 本地查词, 基础学习状态与右下角覆盖率面板.
-- 网页分片扫描, 增量更新, 视口附近高亮与范围上限.
-- 44,688 个常用英汉词条, 按首字母分片加载, 保留音标及释义.
-- 本地 PDF 和按需授权的在线 PDF 打开, 分页阅读, 缩放, 旋转, 选词与高亮.
-- PDF 渐进统计和阅读页码恢复, 网页与 PDF 共享词汇状态.
-- 本地词库, 遇词记录, JSON 备份合并和 CSV 词表导入导出.
-- 可配置 OpenAI-compatible 翻译服务, 支持 Base URL, 模型, 可选 API Key, 目标语言和超时.
-- 翻译取消, 基础响应校验, 错误反馈, 缓存隔离和并发上限.
-
-## 验证方式
-
-领域和协议回归覆盖词频统计, CSV, 收藏去重, 备份校验, 更新合并, 兼容请求构造, 返回值验证和缓存隔离.
-
-本轮类型检查, ESLint, Prettier, 13 项回归验证和生产打包均通过. 通过 npm ci 验证了锁文件安装, 安装审计报告为 0 个已知漏洞. 安装包位于 `.output/xgloss-0.1.0-chrome.zip`.
-
-独立 Chromium 加载构建产物, 使用 2,000 段合成网页与 300 页合成文本 PDF, 验证分析, 收藏, 关闭清理, PDF 跳页, 缩放, 旋转与重新打开后的阅读位置恢复. 通过本机模拟 Chat Completions 服务验证翻译请求. PDF 截图已用于修正旋转后的文字层对齐.
-
-模拟翻译测试使用 fixture 来源预授权的测试副本. 真实服务, 用户当前浏览器中的权限弹窗以及复杂站点仍需实际试用.
-
-## 继续迭代
-
-- 当前 PDF 使用单页翻页, 后续可增加连续滚动与页级虚拟化. 在线 PDF 当前完整下载后解析, 可继续增加范围请求加载.
-- 分词当前统一大小写和撇号, 词形词元归并, 短语识别和跨 PDF TextItem 单词合并需要继续实现.
-- 网页优先处理 main / article / role=main, 受限场景包含 iframe, Shadow DOM, 虚拟列表与 SPA 根节点整体替换.
-- 网页与 PDF 均有 100 万字符分析预算, 网页另有限制节点数和单节点长度. 达到预算时界面显示部分分析状态.
-- 基础状态为学习中, 已掌握, 忽略, 细分等级可按试用反馈增加.
-- 扫描 PDF 的 OCR, PDF 内部链接与注释, 遇词精确定位及复杂双栏阅读顺序需要后续适配.
-- 真实长网页和复杂数据手册的帧耗时, 内存趋势与 WordByWord 对照测量仍待完成.
-- 欧路与手机端同步安排在本地功能稳定之后.
+- **PDF Virtualization & Range Requests**: Add page-level virtualization and HTTP Range streaming for very large online PDFs beyond eager full download.
+- **Morphology & Multi-Span Word Joining**: Extend tokenization beyond lowercase + apostrophe normalization to full lemmatization, multi-word phrase spotting, and hyphenated/split PDF `TextItem` word joining.
+- **Complex DOM Environments**: Expand coverage beyond `main` / `article` / `role="main"` into cross-origin iframes, nested closed Shadow DOMs, virtualized scrollers, and full SPA root replacements (web & PDF both enforce 1,000,000-character analysis budgets).
+- **OCR & External Sync**: Add OCR support for scanned PDFs, PDF internal annotations/links, and optional cloud/mobile companion sync (e.g., Eudic).
+- **Real-World Performance Profiling**: Collect frame-time traces, heap snapshots, and comparative benchmarks on large real-world engineering manuals and long dynamic pages.

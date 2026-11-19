@@ -147,7 +147,7 @@ try {
     await options.getByText('寄存器 / 登记', { exact: true }).waitFor()
     assert.equal(translationRequests, 1, 'Identical translation should use the local cache')
     await options.getByRole('combobox', { name: '默认释义' }).click()
-    await options.getByRole('option', { name: '详细 (词性, 音标和原句)' }).click()
+    await options.getByRole('option', { name: '详细 (词性和原句)' }).click()
     await options.getByText('词卡显示偏好已保存', { exact: true }).waitFor()
     await options.getByRole('combobox', { name: '默认释义' }).click()
     await options.getByRole('option', { name: '简洁' }).click()
@@ -383,8 +383,8 @@ try {
         selection.addRange(range)
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
     })
-    await card.getByRole('button', { name: /^更多 \d+ 项$/ }).waitFor()
     await card.getByRole('alert').filter({ hasText: 'HTTP 503' }).waitFor()
+    await card.getByRole('button', { name: '重试翻译' }).waitFor()
     await article.waitForFunction(() => {
         const edge = document.querySelector('#edge-word')?.getBoundingClientRect()
         const popup = document
@@ -393,8 +393,6 @@ try {
             ?.getBoundingClientRect()
         return edge && popup && popup.bottom < edge.top && popup.left >= 9 && popup.height <= 195
     })
-    await card.getByRole('button', { name: /^更多 \d+ 项$/ }).click()
-    await card.getByRole('button', { name: '收起义项' }).waitFor()
     await article.setViewportSize({ width: 390, height: 844 })
     await article.waitForFunction(() => {
         const popup = document

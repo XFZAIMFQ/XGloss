@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { t } from '../i18n'
-import { dictionaryMeanings } from '../domain/definitions'
 import { wordCollectionId } from '../domain/collections'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ArrowRight, Play, Keyboard, Layers, Languages, Volume2, X, Check } from '@lucide/vue'
@@ -75,13 +74,7 @@ async function start(nextMode: Mode) {
             .slice()
             .sort((left, right) => left.updatedAt - right.updatedAt)
             .slice(0, limit.value)
-        const entries = await Promise.all(
-            candidates.map(async (word) => {
-                if (word.meaning) return { word, definition: word.meaning }
-                const entry = await request('lookup', word.text)
-                return { word, definition: dictionaryMeanings(entry, 'detailed').join('\n') }
-            }),
-        )
+        const entries = candidates.map((word) => ({ word, definition: word.meaning ?? '' }))
         if (currentGeneration !== generation) return
         deck.value = nextMode === 'translation' ? entries.filter((entry) => entry.definition) : entries
         if (!deck.value.length)

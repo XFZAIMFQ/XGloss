@@ -6,7 +6,6 @@ import {
     errorMessage,
     sourceLanguageSchema,
     type DefinitionMode,
-    type DictionaryEntry,
     type SourceLanguage,
     type TranslationLanguages,
     type TranslationResult,
@@ -21,7 +20,7 @@ import {
     targetLanguageShort,
 } from '../domain/collections'
 import { onReadingChanged, request, translateSelection } from '../platform/messages'
-import { dictionaryMeanings, isPassageSelection } from '../domain/definitions'
+import { isPassageSelection } from '../domain/definitions'
 import { ratingLabel } from '../domain/vocabulary'
 import ShadcnSelect, { type SelectOption } from './ShadcnSelect.vue'
 import WordRatingControls from './WordRatingControls.vue'
@@ -40,18 +39,14 @@ const props = withDefaults(
     { saveSource: true, savedMeaning: undefined, spotlight: undefined },
 )
 const emit = defineEmits<{ saved: []; close: [] }>()
-const entry = ref<DictionaryEntry | null>(null)
 const translation = ref<TranslationResult>()
 const status = ref('')
 const error = ref('')
 const translationError = ref('')
-const localError = ref('')
 const busy = ref(false)
 const saving = ref(false)
-const localLoading = ref(false)
 const onlineAvailable = ref<boolean>()
 const mode = ref<DefinitionMode>('simple')
-const allMeanings = ref(false)
 const savedRating = ref<WordRating>()
 const previousMeaning = ref<string>()
 const selectedMeaning = ref<string>()
@@ -95,34 +90,18 @@ const targetSelectOptions = computed<SelectOption[]>(() => {
     }
     return base
 })
-const localDetails = computed(() => dictionaryMeanings(entry.value, 'detailed'))
 const onlineMeanings = computed(() =>
     translation.value?.kind === 'meanings' ? translation.value.meanings : [],
 )
 const contextMatch = computed(() => (props.source.context ? onlineMeanings.value[0]?.text : undefined))
 const contextMatchId = useId()
-const localMeanings = computed(() => [
-    ...new Set(dictionaryMeanings(entry.value, 'simple').map((text) => text.slice(0, 300))),
-])
 const choices = computed(() => {
-    const options: { text: string; partOfSpeech?: string }[] = onlineMeanings.value.length
-        ? [...onlineMeanings.value]
-        : localMeanings.value.map((text) => ({ text }))
+    const options: { text: string; partOfSpeech?: string }[] = [...onlineMeanings.value]
     const saved = previousMeaning.value
     if (saved && !options.some(({ text }) => text === saved)) options.push({ text: saved })
     return options
 })
 const chosenMeaning = computed(() => selectedMeaning.value ?? previousMeaning.value ?? choices.value[0]?.text)
-const previewCount = 4
-const hasMore = computed(() => !onlineMeanings.value.length && choices.value.length > previewCount)
-const visibleMeanings = computed(() => {
-    if (!hasMore.value || allMeanings.value) return choices.value
-    const preview = choices.value.slice(0, previewCount)
-    if (preview.some(({ text }) => text === chosenMeaning.value)) return preview
-    const selected = choices.value.find(({ text }) => text === chosenMeaning.value)
-    if (selected) preview[preview.length - 1] = selected
-    return preview
-})
 let generation = 0
 let translationRequest: AbortController | undefined
 const passage = computed(() => translation.value?.kind === 'text' || isPassageSelection(props.text))
@@ -145,15 +124,11 @@ watch(
     async ({ text, source }) => {
         cancel()
         const current = ++generation
-        entry.value = null
         translation.value = undefined
         status.value = ''
         error.value = ''
         translationError.value = ''
-        localError.value = ''
         onlineAvailable.value = undefined
-        localLoading.value = canSave.value
-        allMeanings.value = false
         savedRating.value = undefined
         selectedMeaning.value = undefined
         previousMeaning.value = props.savedMeaning
@@ -174,18 +149,6 @@ watch(
         void preferredMode.then((preference) => {
             if (current === generation) mode.value = preference
         })
-        if (canSave.value) {
-            void request('lookup', text)
-                .then((result) => {
-                    if (current === generation) entry.value = result
-                })
-                .catch((reason: unknown) => {
-                    if (current === generation) localError.value = errorMessage(reason)
-                })
-                .finally(() => {
-                    if (current === generation) localLoading.value = false
-                })
-        }
         try {
             const available = await request('translationAvailable')
             if (current === generation) {
@@ -368,70 +331,46 @@ onBeforeUnmount(() => {
             </div>
         </header>
         <div class="word-card-content" aria-live="polite">
-            <p v-if="!passage && mode === 'detailed' && entry?.phonetic" class="word-pronunciation">
-                {{ entry.phonetic }}
-            </p>
             <p v-if="lookingUp" class="definition muted" role="status">
                 {{ passage ? t('card.translating') : t('card.lookingUp') }}
             </p>
             <p v-else-if="translation?.kind === 'text'" class="definition translation">
                 {{ translation.text }}
             </p>
-            <p v-else-if="localLoading && !onlineMeanings.length" class="definition muted" role="status">
-                {{ t('card.localLoading') }}
-            </p>
-            <template v-else-if="choices.length">
-                <p v-if="!onlineMeanings.length && localMeanings.length" class="muted small">
-                    {{ t('card.localDictionary') }}
-                </p>
-                <div class="meaning-options" role="group" :aria-label="t('card.choices')">
-                    <span v-if="contextMatch" :id="contextMatchId" hidden>{{ t('card.bestMatch') }}</span>
-                    <button
-                        v-for="meaning in visibleMeanings"
-                        :key="meaning.text"
-                        type="button"
-                        class="meaning-option"
-                        :aria-pressed="meaning.text === chosenMeaning"
-                        :aria-describedby="meaning.text === contextMatch ? contextMatchId : undefined"
-                        :disabled="saving || loadingSavedMeaning"
-                        @click="selectedMeaning = meaning.text"
-                    >
-                        <span>{{ meaning.text }}</span>
-                        <small v-if="mode === 'detailed' && meaning.partOfSpeech" class="muted">
-                            {{ meaning.partOfSpeech }}
-                        </small>
-                        <span
-                            v-if="meaning.text === contextMatch"
-                            class="context-match"
-                            :title="t('card.bestMatch')"
-                            aria-hidden="true"
-                        >
-                            <Sparkles :size="13" />
-                        </span>
-                    </button>
-                    <button
-                        v-if="hasMore"
-                        type="button"
-                        class="quiet more-meanings"
-                        :aria-expanded="allMeanings"
-                        @click="allMeanings = !allMeanings"
-                    >
-                        {{
-                            allMeanings
-                                ? t('card.showLess')
-                                : t('card.showMore', { count: choices.length - previewCount })
-                        }}
-                    </button>
-                </div>
-                <p
-                    v-if="mode === 'detailed' && !onlineMeanings.length && localDetails.length"
-                    class="definition muted small"
+            <div
+                v-else-if="choices.length"
+                class="meaning-options"
+                role="group"
+                :aria-label="t('card.choices')"
+            >
+                <span v-if="contextMatch" :id="contextMatchId" hidden>{{ t('card.bestMatch') }}</span>
+                <button
+                    v-for="meaning in choices"
+                    :key="meaning.text"
+                    type="button"
+                    class="meaning-option"
+                    :aria-pressed="meaning.text === chosenMeaning"
+                    :aria-describedby="meaning.text === contextMatch ? contextMatchId : undefined"
+                    :disabled="saving || loadingSavedMeaning"
+                    @click="selectedMeaning = meaning.text"
                 >
-                    {{ localDetails.join('\n') }}
-                </p>
-            </template>
-            <p v-else-if="!onlineAvailable && passage" class="muted">{{ t('card.configureForPassage') }}</p>
-            <p v-else-if="!passage" class="definition muted">{{ localError || t('card.localMissing') }}</p>
+                    <span>{{ meaning.text }}</span>
+                    <small v-if="mode === 'detailed' && meaning.partOfSpeech" class="muted">
+                        {{ meaning.partOfSpeech }}
+                    </small>
+                    <span
+                        v-if="meaning.text === contextMatch"
+                        class="context-match"
+                        :title="t('card.bestMatch')"
+                        aria-hidden="true"
+                    >
+                        <Sparkles :size="13" />
+                    </span>
+                </button>
+            </div>
+            <p v-else-if="!onlineAvailable" class="muted">
+                {{ passage ? t('card.configureForPassage') : t('card.configureTranslation') }}
+            </p>
             <blockquote v-if="!passage && mode === 'detailed' && source.context">
                 {{ source.context }}
             </blockquote>
@@ -443,7 +382,7 @@ onBeforeUnmount(() => {
                 v-if="canSave"
                 :word="text"
                 :rating="savedRating ?? rating"
-                :busy="saving || lookingUp || loadingSavedMeaning || (localLoading && !onlineMeanings.length)"
+                :busy="saving || lookingUp || loadingSavedMeaning"
                 @rate="save"
             />
             <div class="card-footer-right">

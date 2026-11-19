@@ -120,13 +120,6 @@ export const translationResultSchema = z.discriminatedUnion('kind', [
 export type TranslationResult = z.infer<typeof translationResultSchema>
 export const definitionModeSchema = z.enum(['simple', 'detailed'])
 export type DefinitionMode = z.infer<typeof definitionModeSchema>
-export interface DictionaryEntry {
-    word: string
-    phonetic: string
-    translation: string
-    definition: string
-    exchange: string
-}
 export interface ReadingProgress {
     id: string
     page: number

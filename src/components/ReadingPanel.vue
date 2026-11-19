@@ -13,7 +13,6 @@ import {
 } from 'vue'
 import { EyeOff, RefreshCw, Volume2, X } from '@lucide/vue'
 import { calculateCoverage, ratingLabel, type Frequency } from '../domain/vocabulary'
-import { dictionaryMeanings } from '../domain/definitions'
 import { errorMessage, type Word, type WordRating, type WordSource } from '../domain/models'
 import { onReadingChanged, request, translateSelection } from '../platform/messages'
 import WordRatingControls from './WordRatingControls.vue'
@@ -134,9 +133,7 @@ watch(
             } catch {
                 signal.throwIfAborted()
             }
-            signal.throwIfAborted()
-            const entry = await request('lookup', word)
-            return dictionaryMeanings(entry, 'simple')[0]?.slice(0, 300) ?? ''
+            return ''
         }
         function drain() {
             while (!signal.aborted && loading.size < maxConcurrentMeanings && queue.size) {

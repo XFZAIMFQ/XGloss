@@ -49,7 +49,6 @@ import {
     type TranslationResult,
     wordRatingSchema,
 } from '../domain/models'
-import { lookupDictionary } from './dictionary'
 import { completionEndpoint, requestTranslation, translationCacheKey } from './openai-translation'
 
 const envelopeSchema = z.object({
@@ -298,19 +297,14 @@ async function execute(
                 .parse(message.input)
             return loadEncounterMeaning(input.text, input.source)
         }
-        case 'lookup':
-            return lookupDictionary(z.string().max(200).parse(message.input))
         case 'wordDetails': {
             const keys = z.array(z.string().min(1).max(200)).max(30).parse(message.input)
             const index = db.transaction('encounters').store.index('wordDate')
             return Promise.all(
                 keys.map(async (key) => {
                     const range = IDBKeyRange.bound([key, -Infinity], [key, Infinity])
-                    const [cursor, entry] = await Promise.all([
-                        index.openCursor(range, 'prev'),
-                        lookupDictionary(key),
-                    ])
-                    return { key, entry, encounter: cursor?.value }
+                    const cursor = await index.openCursor(range, 'prev')
+                    return { key, encounter: cursor?.value }
                 }),
             )
         }
