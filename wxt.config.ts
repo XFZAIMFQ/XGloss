@@ -13,7 +13,7 @@ export default defineConfig({
             48: 'icon/48.png',
             128: 'icon/128.png',
         },
-        permissions: ['storage', 'activeTab', 'scripting', 'contextMenus'],
+        permissions: ['storage', 'activeTab', 'scripting', 'contextMenus', 'identity'],
         optional_host_permissions: ['https://*/*', 'http://*/*'],
         action: {
             default_title: 'XGloss',

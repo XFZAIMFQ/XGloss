@@ -6,12 +6,87 @@ export const collectionLanguageSchema = z.enum(collectionLanguages)
 export type CollectionLanguage = z.infer<typeof collectionLanguageSchema>
 export const defaultCollectionId = 'en'
 export const collectionIdSchema = z.string().trim().min(1).max(100)
+export const deleteCollectionModeSchema = z.enum(['move', 'delete'])
+export type DeleteCollectionMode = z.infer<typeof deleteCollectionModeSchema>
+export const deleteCollectionInputSchema = z.object({
+    id: collectionIdSchema,
+    mode: deleteCollectionModeSchema,
+    targetCollectionId: collectionIdSchema.optional(),
+})
+export type DeleteCollectionInput = z.infer<typeof deleteCollectionInputSchema>
+export const wordSortSchema = z.enum([
+    'updated-desc',
+    'updated-asc',
+    'alpha-asc',
+    'alpha-desc',
+    'level-asc',
+    'level-desc',
+])
+export type WordSort = z.infer<typeof wordSortSchema>
+export const wordbookProviderTypeSchema = z.enum(['eudic', 'maimemo'])
+export type WordbookProviderType = z.infer<typeof wordbookProviderTypeSchema>
+export const wordbookMasteredActionSchema = z.enum(['keep', 'remove'])
+export type WordbookMasteredAction = z.infer<typeof wordbookMasteredActionSchema>
+export const collectionWordbookSchema = z.object({
+    profileId: z.string().trim().min(1).max(100),
+    categoryId: z.string().trim().min(1).max(200),
+    categoryName: z.string().trim().max(200).default(''),
+    autoSync: z.boolean().default(false),
+    onMastered: wordbookMasteredActionSchema.default('keep'),
+})
+export type CollectionWordbook = z.infer<typeof collectionWordbookSchema>
+export const wordbookProfileSchema = z.object({
+    id: z.string().trim().min(1).max(100),
+    name: z.string().trim().min(1).max(80),
+    type: wordbookProviderTypeSchema,
+    token: z.string().trim().min(1).max(4000),
+    createdAt: z.number().finite(),
+    updatedAt: z.number().finite(),
+})
+export type WordbookProfile = z.infer<typeof wordbookProfileSchema>
+export const wordbookProfileInputSchema = z.object({
+    id: z.string().trim().min(1).max(100).optional(),
+    name: z.string().trim().min(1).max(80),
+    type: wordbookProviderTypeSchema,
+    token: z.string().trim().min(1).max(4000),
+})
+export type WordbookProfileInput = z.infer<typeof wordbookProfileInputSchema>
+export const wordbookProfileSummarySchema = z.object({
+    id: z.string().trim().min(1).max(100),
+    name: z.string().trim().min(1).max(80),
+    type: wordbookProviderTypeSchema,
+})
+export type WordbookProfileSummary = z.infer<typeof wordbookProfileSummarySchema>
+export const wordbookCategorySchema = z.object({
+    id: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(200),
+})
+export type WordbookCategory = z.infer<typeof wordbookCategorySchema>
+export const googleSyncConfigSchema = z.object({
+    clientId: z.string().trim().max(300).default(''),
+    accessToken: z.string().max(4000).default(''),
+    tokenExpiresAt: z.number().finite().default(0),
+    accountEmail: z.string().trim().max(300).default(''),
+    lastSyncedAt: z.number().finite().default(0),
+    lastSyncSummary: z.string().max(300).default(''),
+})
+export type GoogleSyncConfig = z.infer<typeof googleSyncConfigSchema>
+export const googleSyncStateSchema = z.object({
+    clientId: z.string(),
+    redirectUri: z.string(),
+    connected: z.boolean(),
+    accountEmail: z.string(),
+    lastSyncedAt: z.number(),
+    lastSyncSummary: z.string(),
+})
+export type GoogleSyncState = z.infer<typeof googleSyncStateSchema>
 export const vocabularyCollectionSchema = z.object({
     id: collectionIdSchema,
     language: collectionLanguageSchema,
     name: z.string().trim().min(1).max(80),
     description: z.string().trim().max(300).default(''),
     pinned: z.boolean().default(false),
+    wordbook: collectionWordbookSchema.optional(),
     createdAt: z.number().finite(),
     updatedAt: z.number().finite(),
 })
@@ -85,6 +160,26 @@ export const defaultTranslationSettings: TranslationSettings = {
     targetLanguage: t('common.simplifiedChinese'),
     timeoutMs: 30_000,
 }
+export const translationProviderSchema = z.object({
+    id: z.string().trim().min(1).max(100),
+    name: z.string().trim().min(1).max(80),
+    baseUrl: z.string().trim().max(2000),
+    apiKey: z.string().max(4000).default(''),
+    model: z.string().trim().max(200),
+    timeoutMs: z.number().int().min(1000).max(120_000).default(30_000),
+})
+export type TranslationProvider = z.infer<typeof translationProviderSchema>
+export const translationProviderInputSchema = translationProviderSchema.extend({
+    id: z.string().trim().min(1).max(100).optional(),
+    activate: z.boolean().optional(),
+})
+export type TranslationProviderInput = z.infer<typeof translationProviderInputSchema>
+export const translationProvidersStateSchema = z.object({
+    activeId: z.string().max(100).default(''),
+    providers: z.array(translationProviderSchema).max(50).default([]),
+    targetLanguage: z.string().trim().min(1).max(100).default(defaultTranslationSettings.targetLanguage),
+})
+export type TranslationProvidersState = z.infer<typeof translationProvidersStateSchema>
 export const selectionTriggerSchema = z.enum(['auto', 'icon', 'off'])
 export type SelectionTrigger = z.infer<typeof selectionTriggerSchema>
 export const sourceLanguages = ['auto', ...collectionLanguages] as const

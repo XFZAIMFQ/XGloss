@@ -3,17 +3,25 @@ import { database } from './database'
 import {
     backupSchema,
     defaultCollectionId,
+    deleteCollectionInputSchema,
     savedMeaningSchema,
     vocabularyCollectionSchema,
     type Backup,
     type CollectionLanguage,
+    type CollectionWordbook,
+    type DeleteCollectionInput,
     type LearningLevel,
     type VocabularyCollection,
     type Word,
     type WordSource,
     type WordState,
 } from '../domain/models'
-import { activeCollectionId, defaultCollection, sortCollections } from '../domain/collections'
+import {
+    activeCollectionId,
+    defaultCollection,
+    sortCollections,
+    wordCollectionId,
+} from '../domain/collections'
 import { normalizeWord } from '../domain/vocabulary'
 
 function encounterId(key: string, source: WordSource): string {
@@ -41,6 +49,7 @@ export async function saveCollection(input: {
     name: string
     description: string
     pinned?: boolean
+    wordbook?: CollectionWordbook | null
 }): Promise<VocabularyCollection> {
     const db = await database
     const tx = db.transaction('collections', 'readwrite')
@@ -52,12 +61,14 @@ export async function saveCollection(input: {
             (await store.get(input.id)) ??
             (input.id === defaultCollectionId ? defaultCollection(now) : undefined)
         if (!existing) throw new Error(t('library.collectionNotFound'))
+        const wordbook = input.wordbook === undefined ? existing.wordbook : (input.wordbook ?? undefined)
         record = vocabularyCollectionSchema.parse({
             ...existing,
             language: input.language,
             name: input.name,
             description: input.description,
             pinned: input.pinned ?? existing.pinned,
+            wordbook,
             updatedAt: now,
         })
     } else {
@@ -67,6 +78,7 @@ export async function saveCollection(input: {
             name: input.name,
             description: input.description,
             pinned: input.pinned ?? false,
+            wordbook: input.wordbook ?? undefined,
             createdAt: now,
             updatedAt: now,
         })
@@ -88,6 +100,68 @@ export async function toggleCollectionPin(id: string): Promise<VocabularyCollect
     await store.put(updated)
     await tx.done
     return updated
+}
+
+export async function deleteCollection(rawInput: DeleteCollectionInput): Promise<{
+    deletedWords: number
+    movedWords: number
+    fallbackCollectionId: string
+    fallbackLanguage: CollectionLanguage
+}> {
+    const input = deleteCollectionInputSchema.parse(rawInput)
+    const db = await database
+    const tx = db.transaction(['collections', 'words', 'encounters', 'activities'], 'readwrite')
+    const collectionStore = tx.objectStore('collections')
+    const allCollections = await collectionStore.getAll()
+    const existing = allCollections.find((item) => item.id === input.id)
+    if (!existing) throw new Error(t('library.collectionNotFound'))
+    if (allCollections.length <= 1) throw new Error(t('library.cannotDeleteLastCollection'))
+    const remaining = sortCollections(allCollections.filter((item) => item.id !== input.id))
+    let target = remaining[0]!
+    if (input.mode === 'move' && input.targetCollectionId) {
+        const chosen = remaining.find((item) => item.id === input.targetCollectionId)
+        if (!chosen) throw new Error(t('library.collectionNotFound'))
+        target = chosen
+    }
+    const wordStore = tx.objectStore('words')
+    const allWords = await wordStore.getAll()
+    const matchingWords = allWords.filter((word) => wordCollectionId(word) === input.id)
+    let movedWords = 0
+    let deletedWords = 0
+    if (input.mode === 'move') {
+        for (const word of matchingWords) {
+            await wordStore.put({ ...word, collectionId: target.id })
+            movedWords++
+        }
+    } else {
+        const removedKeys = new Set(matchingWords.map((word) => word.key))
+        for (const key of removedKeys) {
+            await wordStore.delete(key)
+            deletedWords++
+        }
+        if (removedKeys.size > 0) {
+            const encounterStore = tx.objectStore('encounters')
+            let encounterCursor = await encounterStore.openCursor()
+            while (encounterCursor) {
+                if (removedKeys.has(encounterCursor.value.wordKey)) await encounterCursor.delete()
+                encounterCursor = await encounterCursor.continue()
+            }
+            const activityStore = tx.objectStore('activities')
+            let activityCursor = await activityStore.openCursor()
+            while (activityCursor) {
+                if (removedKeys.has(activityCursor.value.wordKey)) await activityCursor.delete()
+                activityCursor = await activityCursor.continue()
+            }
+        }
+    }
+    await collectionStore.delete(input.id)
+    await tx.done
+    return {
+        deletedWords,
+        movedWords,
+        fallbackCollectionId: target.id,
+        fallbackLanguage: target.language,
+    }
 }
 
 export async function loadEncounterMeaning(text: string, source: WordSource) {
@@ -234,20 +308,46 @@ export async function updateWord(input: {
 }
 
 export async function deleteWord(key: string): Promise<void> {
+    await deleteWords([key])
+}
+
+export async function deleteWords(keys: readonly string[]): Promise<number> {
+    const keySet = new Set(keys.map((key) => key.trim()).filter(Boolean))
+    if (!keySet.size) return 0
     const db = await database
     const tx = db.transaction(['words', 'encounters', 'activities'], 'readwrite')
-    await tx.objectStore('words').delete(key)
-    let encounterCursor = await tx.objectStore('encounters').index('wordKey').openCursor(key)
-    while (encounterCursor) {
-        await encounterCursor.delete()
-        encounterCursor = await encounterCursor.continue()
+    const wordStore = tx.objectStore('words')
+    let deleted = 0
+    for (const key of keySet) {
+        if (await wordStore.getKey(key)) {
+            await wordStore.delete(key)
+            deleted++
+        }
+    }
+    const encounterStore = tx.objectStore('encounters')
+    if (keySet.size <= 25) {
+        const index = encounterStore.index('wordKey')
+        for (const key of keySet) {
+            let cursor = await index.openCursor(key)
+            while (cursor) {
+                await cursor.delete()
+                cursor = await cursor.continue()
+            }
+        }
+    } else {
+        let cursor = await encounterStore.openCursor()
+        while (cursor) {
+            if (keySet.has(cursor.value.wordKey)) await cursor.delete()
+            cursor = await cursor.continue()
+        }
     }
     let activityCursor = await tx.objectStore('activities').openCursor()
     while (activityCursor) {
-        if (activityCursor.value.wordKey === key) await activityCursor.delete()
+        if (keySet.has(activityCursor.value.wordKey)) await activityCursor.delete()
         activityCursor = await activityCursor.continue()
     }
     await tx.done
+    return deleted
 }
 
 export async function exportVocabulary(): Promise<Extract<Backup, { version: 2 }>> {

@@ -3,20 +3,30 @@ import { browser } from 'wxt/browser'
 import type {
     Backup,
     CollectionLanguage,
+    CollectionWordbook,
     DefinitionMode,
+    DeleteCollectionInput,
     Encounter,
+    GoogleSyncState,
     LearningActivity,
     PdfBookmark,
     ReadingProgress,
     SelectionTrigger,
     TranslationInput,
     TranslationLanguages,
+    TranslationProvider,
+    TranslationProviderInput,
+    TranslationProvidersState,
     TranslationResult,
     TranslationSettings,
     VocabularyCollection,
     Word,
     WordSource,
     WordRating,
+    WordbookCategory,
+    WordbookProfile,
+    WordbookProfileInput,
+    WordbookProfileSummary,
 } from '../domain/models'
 
 export interface Operations {
@@ -41,6 +51,7 @@ export interface Operations {
         output: Word
     }
     deleteWord: { input: string; output: null }
+    deleteWords: { input: string[]; output: number }
     collections: { input: undefined; output: VocabularyCollection[] }
     saveCollection: {
         input: {
@@ -49,10 +60,15 @@ export interface Operations {
             name: string
             description: string
             pinned?: boolean
+            wordbook?: CollectionWordbook | null
         }
         output: VocabularyCollection
     }
     toggleCollectionPin: { input: string; output: VocabularyCollection }
+    deleteCollection: {
+        input: DeleteCollectionInput
+        output: { deletedWords: number; movedWords: number; fallbackCollectionId: string }
+    }
     encounterMeaning: { input: { text: string; source: WordSource }; output: string | undefined }
     wordDetails: {
         input: string[]
@@ -64,6 +80,39 @@ export interface Operations {
     cancelTranslation: { input: string; output: null }
     settings: { input: undefined; output: TranslationSettings }
     saveSettings: { input: TranslationSettings; output: null }
+    translationProviders: { input: undefined; output: TranslationProvidersState }
+    saveTranslationProvider: {
+        input: TranslationProviderInput
+        output: { state: TranslationProvidersState; provider: TranslationProvider }
+    }
+    deleteTranslationProvider: { input: string; output: TranslationProvidersState }
+    setActiveTranslationProvider: { input: string; output: TranslationProvidersState }
+    saveTargetLanguage: { input: string; output: TranslationProvidersState }
+    testTranslationProvider: { input: string; output: TranslationResult }
+    googleSyncState: { input: undefined; output: GoogleSyncState }
+    saveGoogleClientId: { input: string; output: GoogleSyncState }
+    connectGoogleSync: { input: undefined; output: GoogleSyncState }
+    disconnectGoogleSync: { input: undefined; output: GoogleSyncState }
+    runGoogleSync: {
+        input: undefined
+        output: { state: GoogleSyncState; mergedWords: number; uploadedWords: number }
+    }
+    wordbookProfiles: { input: undefined; output: WordbookProfile[] }
+    saveWordbookProfile: {
+        input: WordbookProfileInput
+        output: { profiles: WordbookProfile[]; profile: WordbookProfile }
+    }
+    deleteWordbookProfile: { input: string; output: WordbookProfile[] }
+    testWordbookProfile: { input: string; output: { count: number; categories: WordbookCategory[] } }
+    wordbookProfileSummaries: { input: undefined; output: WordbookProfileSummary[] }
+    wordbookCategories: {
+        input: { profileId: string; language: CollectionLanguage }
+        output: WordbookCategory[]
+    }
+    syncCollectionWordbook: {
+        input: string
+        output: { syncedCount: number; categoryName: string }
+    }
     definitionMode: { input: undefined; output: DefinitionMode }
     saveDefinitionMode: { input: DefinitionMode; output: null }
     siteReading: { input: number | undefined; output: { analysis: boolean } }

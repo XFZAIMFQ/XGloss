@@ -24,11 +24,14 @@
 - **Spotlight Highlighting**: Viewport-scoped CSS Custom Highlight API highlighting (`5,000` active range cap) synchronized in real time across open web tabs.
 - **Floating Reading Panel**: Displays reading coverage percentage, frequency-ranked unknown words, estimated coverage gain per word, manual batch refresh, and a **Recall Mode** that hides candidate glosses until revealed.
 - **Flexible Selection Trigger (`Auto` / `Icon` / `Off`)**: Switch directly from the extension toolbar popup between instant popup translation, a compact `26x26` selection trigger icon, or selection-off (panel lookups remain active).
-- **Multi-Language Collections & Active Routing**: Organize vocabulary across 8 languages (`EN`, `JA`, `KO`, `DE`, `FR`, `ES`, `RU`, `IT`), pin collections, pick an active collection in the popup (unidirectionally syncing the default source language), and fine-tune translation direction without mutating collection bindings.
-- **Context-Aware OpenAI-Compatible Translation**:
-    - Configurable **OpenAI-compatible Chat Completions** adapter (with a DeepSeek preset and support for local `http://localhost` models without an API key).
+- **Multi-Language Collections & Library Management**: Organize vocabulary across 8 languages (`EN`, `JA`, `KO`, `DE`, `FR`, `ES`, `RU`, `IT`), create/edit/pin/delete collections (choosing to migrate words to another collection or delete them together), sort words by time/name/mastery level, bulk-delete words via right-side checkboxes, and pick an active collection in the popup (unidirectionally syncing the default source language).
+- **Multi-Profile OpenAI-Compatible Translation**:
+    - Create, switch, and test multiple **OpenAI-compatible Chat Completions** providers (DeepSeek preset, OpenAI, or local `http://localhost` models without an API key) from card profiles in Settings.
     - Returns up to 5 context-ranked meanings for words/phrases (preserving chosen meanings per encounter) and full translations for sentences/passages.
     - Includes a compact per-card bottom-right language switcher on `WordCard` for one-off `source -> target` overrides without modifying global defaults.
+- **Optional Cloud & External Wordbook Sync**:
+    - **Google Drive Sync (`appDataFolder`)**: Free, zero-backend sync storing merged JSON v2 backups privately in your own Google Drive hidden app data folder via OAuth (`chrome.identity.launchWebAuthFlow`).
+    - **External Wordbooks (Eudic & MaiMemo)**: Multi-profile external wordbook accounts in Settings with per-collection binding in Library, manual append-only sync, opt-in auto-sync for new learning words, and configurable keep/remove behavior when mastering a word.
 - **Structured Review & GitHub-Style Activity Heatmap**:
     - Three review modes (`Flashcards`, `Meaning -> Word`, and `Spelling`) filtered by collection and session size (`10` / `20` / `50`).
     - Inline 4-grade `Learning` (`1-4`), `Known`, and `Ignored` controls, plus a 1-year calendar heatmap tracking daily added, rated, and reviewed words.

@@ -24,7 +24,9 @@ legacy.close()
 
 const { database } = await import('../src/data/database')
 const {
+    deleteCollection,
     deleteWord,
+    deleteWords,
     exportVocabulary,
     importVocabulary,
     listCollections,
@@ -203,5 +205,38 @@ describe('persistent vocabulary', () => {
         expect(await db.get('words', 'registry')).toBeUndefined()
         expect(await db.getAllFromIndex('encounters', 'wordKey', 'registry')).toHaveLength(0)
         expect((await db.getAll('activities')).some((item) => item.wordKey === 'registry')).toBe(false)
+    })
+    it('deletes collections in move and delete modes while preventing deleting the last collection', async () => {
+        await listCollections()
+        await expect(deleteCollection({ id: 'en', mode: 'delete' })).rejects.toThrow('至少需要保留一个词库')
+        const ja = await saveCollection({ language: 'ja', name: 'Japanese', description: '' })
+        const de = await saveCollection({ language: 'de', name: 'German', description: '' })
+        const source = { title: 'Doc', url: 'https://example.com', context: 'Sample context.' }
+        await saveWord('kotoba', 'learning', source, { collectionId: ja.id })
+        await saveWord('wort', 'learning', source, { collectionId: de.id })
+        const moved = await deleteCollection({ id: ja.id, mode: 'move', targetCollectionId: 'en' })
+        expect(moved.movedWords).toBe(1)
+        expect(moved.deletedWords).toBe(0)
+        const db = await database
+        expect(await db.get('collections', ja.id)).toBeUndefined()
+        expect((await db.get('words', 'kotoba'))?.collectionId).toBe('en')
+        const deleted = await deleteCollection({ id: de.id, mode: 'delete' })
+        expect(deleted.deletedWords).toBe(1)
+        expect(await db.get('collections', de.id)).toBeUndefined()
+        expect(await db.get('words', 'wort')).toBeUndefined()
+        expect(await db.getAllFromIndex('encounters', 'wordKey', 'wort')).toHaveLength(0)
+        expect((await db.getAll('activities')).some((item) => item.wordKey === 'wort')).toBe(false)
+    })
+    it('batch deletes multiple words along with encounters and activities atomically', async () => {
+        const source = { title: 'Doc', url: 'https://example.com', context: 'Bulk test.' }
+        await saveWord('alpha', 'learning', source)
+        await saveWord('beta', 'known', source)
+        await saveWord('gamma', 'ignored', source)
+        const count = await deleteWords(['alpha', 'beta', 'nonexistent'])
+        expect(count).toBe(2)
+        const db = await database
+        expect((await db.getAll('words')).map((w) => w.key)).toEqual(['gamma'])
+        expect((await db.getAll('encounters')).map((e) => e.wordKey)).toEqual(['gamma'])
+        expect((await db.getAll('activities')).every((a) => a.wordKey === 'gamma')).toBe(true)
     })
 })

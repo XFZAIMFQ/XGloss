@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { t } from '../../i18n'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { browser } from 'wxt/browser'
 import WordCard from '../../components/WordCard.vue'
 import WordRatingControls from '../../components/WordRatingControls.vue'
 import LanguageFlag from '../../components/LanguageFlag.vue'
@@ -20,27 +21,57 @@ import {
     Pencil,
     ChevronLeft,
     Trash2,
+    RefreshCw,
 } from '@lucide/vue'
 import { parseWordCsv } from '../../domain/csv'
-import { languageInfo, languageOptions, sortCollections, wordCollectionId } from '../../domain/collections'
+import {
+    languageInfo,
+    languageOptions,
+    sortCollections,
+    sortWords,
+    wordCollectionId,
+} from '../../domain/collections'
 import { learningLevelLabel, normalizeWord } from '../../domain/vocabulary'
 import {
     defaultCollectionId,
     errorMessage,
     learningLevels,
+    wordbookMasteredActionSchema,
     type CollectionLanguage,
+    type CollectionWordbook,
+    type DeleteCollectionMode,
     type Encounter,
     type VocabularyCollection,
     type Word,
     type WordRating,
+    type WordSort,
     type WordState,
+    type WordbookCategory,
+    type WordbookMasteredAction,
+    type WordbookProfileSummary,
 } from '../../domain/models'
+import { wordbookOrigin } from '../../services/wordbook-sync'
 import { onVocabularyChanged, request, type Operations } from '../../platform/messages'
 
 const words = ref<Word[]>([])
 const collections = ref<VocabularyCollection[]>([])
+const wordbookProfiles = ref<WordbookProfileSummary[]>([])
+const wordbookCategories = ref<WordbookCategory[]>([])
+const loadingWordbookCategories = ref(false)
+const syncingWordbookId = ref('')
+const wordbookSyncPrompt = ref<{
+    collectionId: string
+    collectionName: string
+    categoryName: string
+    learningCount: number
+}>()
+const masteredActionOptions: readonly SelectOption[] = [
+    { value: 'keep', label: t('library.wordbookMasteredKeep') },
+    { value: 'remove', label: t('library.wordbookMasteredRemove') },
+]
 const query = ref('')
 const filter = ref('all')
+const sortBy = ref<WordSort>('updated-desc')
 const filterOptions: readonly SelectOption[] = [
     { value: 'all', label: t('library.allStates') },
     { value: 'learning', label: t('common.learning') },
@@ -50,6 +81,14 @@ const filterOptions: readonly SelectOption[] = [
     })),
     { value: 'known', label: t('common.known') },
     { value: 'ignored', label: t('common.ignored') },
+]
+const sortOptions: readonly SelectOption[] = [
+    { value: 'updated-desc', label: t('library.sortUpdatedDesc') },
+    { value: 'updated-asc', label: t('library.sortUpdatedAsc') },
+    { value: 'alpha-asc', label: t('library.sortAlphaAsc') },
+    { value: 'alpha-desc', label: t('library.sortAlphaDesc') },
+    { value: 'level-asc', label: t('library.sortLevelAsc') },
+    { value: 'level-desc', label: t('library.sortLevelDesc') },
 ]
 const tab = ref('library')
 const inCollection = ref(false)
@@ -64,14 +103,31 @@ const collectionForm = reactive<{
     name: string
     description: string
     pinned: boolean
+    wordbookProfileId: string
+    wordbookCategoryId: string
+    wordbookCategoryName: string
+    wordbookAutoSync: boolean
+    wordbookOnMastered: WordbookMasteredAction
 }>({
     language: 'en',
     name: '',
     description: '',
     pinned: false,
+    wordbookProfileId: '',
+    wordbookCategoryId: '',
+    wordbookCategoryName: '',
+    wordbookAutoSync: false,
+    wordbookOnMastered: 'keep',
 })
 const collectionSaving = ref(false)
 const pinPending = ref(new Set<string>())
+const deletingCollection = ref<VocabularyCollection>()
+const deleteCollectionMode = ref<DeleteCollectionMode>('move')
+const deleteTargetCollectionId = ref('')
+const collectionDeleting = ref(false)
+const selectedKeys = ref<Set<string>>(new Set())
+const bulkDeleteOpen = ref(false)
+const bulkDeleting = ref(false)
 const editingWord = ref<Word>()
 const editText = ref('')
 const editMeaning = ref('')
@@ -111,6 +167,51 @@ const collectionSummaries = computed(() =>
 const collectionWords = computed(() =>
     words.value.filter((word) => wordCollectionId(word) === currentCollectionId.value),
 )
+const deletingCollectionWordCount = computed(() => {
+    const target = deletingCollection.value
+    if (!target) return 0
+    return words.value.filter((word) => wordCollectionId(word) === target.id).length
+})
+const editingCollection = computed(() =>
+    collections.value.find((collection) => collection.id === editingCollectionId.value),
+)
+const wordbookProfileOptions = computed<SelectOption[]>(() => [
+    { value: '', label: t('library.wordbookNone') },
+    ...wordbookProfiles.value.map((profile) => ({
+        value: profile.id,
+        label: `${profile.name} (${profile.type === 'maimemo' ? t('wordbook.maimemo') : t('wordbook.eudic')})`,
+    })),
+])
+const wordbookCategoryOptions = computed<SelectOption[]>(() => {
+    const items = wordbookCategories.value.map((category) => ({
+        value: category.id,
+        label: category.name,
+    }))
+    if (
+        collectionForm.wordbookCategoryId &&
+        !items.some((item) => item.value === collectionForm.wordbookCategoryId)
+    ) {
+        items.unshift({
+            value: collectionForm.wordbookCategoryId,
+            label: collectionForm.wordbookCategoryName || collectionForm.wordbookCategoryId,
+        })
+    }
+    return items
+})
+const currentCollectionHasWordbook = computed(() => {
+    const binding = currentCollection.value?.wordbook
+    if (!binding) return false
+    return wordbookProfiles.value.some((profile) => profile.id === binding.profileId)
+})
+const deleteTargetOptions = computed<SelectOption[]>(() => {
+    const deletingId = deletingCollection.value?.id
+    return sortedCollections.value
+        .filter((collection) => collection.id !== deletingId)
+        .map((collection) => ({
+            value: collection.id,
+            label: `${collection.name} (${languageInfo(collection.language).label})`,
+        }))
+})
 
 function updateTab() {
     const hash = location.hash
@@ -152,25 +253,34 @@ function meaningFor(word: Word) {
 const filtered = computed(() => {
     const normalizedQuery = normalizeWord(query.value)
     const rawLower = query.value.trim().toLowerCase()
-    return collectionWords.value
-        .filter((word) => {
-            const matchesQuery =
-                !rawLower ||
-                word.key.includes(normalizedQuery) ||
-                meaningFor(word).toLowerCase().includes(rawLower)
-            const matchesState =
-                filter.value === 'all' || word.state === filter.value || filter.value === ratingValue(word)
-            return matchesQuery && matchesState
-        })
-        .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
+    const matched = collectionWords.value.filter((word) => {
+        const matchesQuery =
+            !rawLower ||
+            word.key.includes(normalizedQuery) ||
+            meaningFor(word).toLowerCase().includes(rawLower)
+        const matchesState =
+            filter.value === 'all' || word.state === filter.value || filter.value === ratingValue(word)
+        return matchesQuery && matchesState
+    })
+    return sortWords(matched, sortBy.value)
 })
 
 const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)))
 const page = computed(() => Math.min(currentPage.value, pages.value))
 const rows = computed(() => filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+const allPageSelected = computed(
+    () => rows.value.length > 0 && rows.value.every((word) => selectedKeys.value.has(word.key)),
+)
+const somePageSelected = computed(
+    () => rows.value.some((word) => selectedKeys.value.has(word.key)) && !allPageSelected.value,
+)
 
-watch([query, filter, currentCollectionId], () => {
+watch([query, filter, sortBy, currentCollectionId], () => {
     currentPage.value = 1
+})
+
+watch([query, filter, currentCollectionId, inCollection], () => {
+    if (selectedKeys.value.size > 0) selectedKeys.value = new Set()
 })
 
 watch([rows, inCollection], async ([items, open], _previous, onCleanup) => {
@@ -195,10 +305,20 @@ let unsubscribe: (() => void) | undefined
 async function refresh() {
     const generation = ++refreshGeneration
     try {
-        const [wordList, collectionList] = await Promise.all([request('words'), request('collections')])
+        const [wordList, collectionList, profileList] = await Promise.all([
+            request('words'),
+            request('collections'),
+            request('wordbookProfileSummaries'),
+        ])
         if (generation !== refreshGeneration) return
         words.value = wordList
         collections.value = collectionList
+        wordbookProfiles.value = profileList
+        if (selectedKeys.value.size > 0) {
+            const existingKeys = new Set(wordList.map((word) => word.key))
+            const next = new Set([...selectedKeys.value].filter((key) => existingKeys.has(key)))
+            if (next.size !== selectedKeys.value.size) selectedKeys.value = next
+        }
         if (
             inCollection.value &&
             !collectionList.some((collection) => collection.id === activeCollection.value)
@@ -221,6 +341,12 @@ function openCreateCollection() {
     collectionForm.name = ''
     collectionForm.description = ''
     collectionForm.pinned = false
+    collectionForm.wordbookProfileId = ''
+    collectionForm.wordbookCategoryId = ''
+    collectionForm.wordbookCategoryName = ''
+    collectionForm.wordbookAutoSync = false
+    collectionForm.wordbookOnMastered = 'keep'
+    wordbookCategories.value = []
     modalError.value = ''
     collectionModalOpen.value = true
 }
@@ -231,8 +357,103 @@ function openEditCollection(collection: VocabularyCollection) {
     collectionForm.name = collection.name
     collectionForm.description = collection.description
     collectionForm.pinned = collection.pinned
+    const validBinding =
+        collection.wordbook &&
+        wordbookProfiles.value.some((profile) => profile.id === collection.wordbook?.profileId)
+            ? collection.wordbook
+            : undefined
+    collectionForm.wordbookProfileId = validBinding?.profileId ?? ''
+    collectionForm.wordbookCategoryId = validBinding?.categoryId ?? ''
+    collectionForm.wordbookCategoryName = validBinding?.categoryName ?? ''
+    collectionForm.wordbookAutoSync = validBinding?.autoSync ?? false
+    collectionForm.wordbookOnMastered = validBinding?.onMastered ?? 'keep'
+    wordbookCategories.value = validBinding
+        ? [{ id: validBinding.categoryId, name: validBinding.categoryName || validBinding.categoryId }]
+        : []
     modalError.value = ''
     collectionModalOpen.value = true
+}
+
+async function ensureWordbookPermission(profileId: string): Promise<boolean> {
+    const profile = wordbookProfiles.value.find((item) => item.id === profileId)
+    if (!profile) throw new Error(t('wordbook.profileNotFound'))
+    return browser.permissions.request({ origins: [`${wordbookOrigin(profile.type)}/*`] })
+}
+
+async function loadWordbookCategoriesForForm() {
+    if (!collectionForm.wordbookProfileId || loadingWordbookCategories.value) return
+    loadingWordbookCategories.value = true
+    modalError.value = ''
+    try {
+        const allowed = await ensureWordbookPermission(collectionForm.wordbookProfileId)
+        if (!allowed) throw new Error(t('library.wordbookPermissionRequired'))
+        const categories = await request('wordbookCategories', {
+            profileId: collectionForm.wordbookProfileId,
+            language: collectionForm.language,
+        })
+        wordbookCategories.value = categories
+        if (categories.length) {
+            const matched = categories.find((item) => item.id === collectionForm.wordbookCategoryId)
+            const chosen = matched ?? categories[0]!
+            collectionForm.wordbookCategoryId = chosen.id
+            collectionForm.wordbookCategoryName = chosen.name
+        }
+    } catch (reason) {
+        modalError.value = errorMessage(reason)
+    } finally {
+        loadingWordbookCategories.value = false
+    }
+}
+
+function handleWordbookProfileChange(profileId: string) {
+    collectionForm.wordbookProfileId = profileId
+    collectionForm.wordbookCategoryId = ''
+    collectionForm.wordbookCategoryName = ''
+    wordbookCategories.value = []
+    if (profileId) void loadWordbookCategoriesForForm()
+}
+
+function handleWordbookCategoryChange(categoryId: string) {
+    collectionForm.wordbookCategoryId = categoryId
+    const matched = wordbookCategories.value.find((item) => item.id === categoryId)
+    collectionForm.wordbookCategoryName = matched?.name ?? categoryId
+}
+
+function handleWordbookMasteredChange(next: string) {
+    collectionForm.wordbookOnMastered = wordbookMasteredActionSchema.parse(next)
+}
+
+async function runManualWordbookSync(collectionId: string) {
+    if (syncingWordbookId.value) return
+    const collection = collections.value.find((item) => item.id === collectionId)
+    const binding = collection?.wordbook
+    if (!collection || !binding) return
+    syncingWordbookId.value = collectionId
+    error.value = ''
+    status.value = ''
+    try {
+        const allowed = await ensureWordbookPermission(binding.profileId)
+        if (!allowed) throw new Error(t('library.wordbookPermissionRequired'))
+        const result = await request('syncCollectionWordbook', collectionId)
+        status.value =
+            result.syncedCount > 0
+                ? t('library.wordbookSyncDone', {
+                      count: result.syncedCount,
+                      category: result.categoryName,
+                  })
+                : t('library.wordbookSyncEmpty')
+    } catch (reason) {
+        error.value = errorMessage(reason)
+    } finally {
+        syncingWordbookId.value = ''
+    }
+}
+
+async function confirmPromptedWordbookSync() {
+    const prompt = wordbookSyncPrompt.value
+    if (!prompt) return
+    wordbookSyncPrompt.value = undefined
+    await runManualWordbookSync(prompt.collectionId)
 }
 
 async function submitCollection() {
@@ -240,15 +461,49 @@ async function submitCollection() {
     collectionSaving.value = true
     modalError.value = ''
     try {
-        await request('saveCollection', {
+        const previousBinding = editingCollection.value?.wordbook
+        let wordbook: CollectionWordbook | null = null
+        if (collectionForm.wordbookProfileId) {
+            if (!collectionForm.wordbookCategoryId) {
+                throw new Error(t('library.wordbookCategoryRequired'))
+            }
+            const allowed = await ensureWordbookPermission(collectionForm.wordbookProfileId)
+            if (!allowed) throw new Error(t('library.wordbookPermissionRequired'))
+            wordbook = {
+                profileId: collectionForm.wordbookProfileId,
+                categoryId: collectionForm.wordbookCategoryId,
+                categoryName: collectionForm.wordbookCategoryName || collectionForm.wordbookCategoryId,
+                autoSync: collectionForm.wordbookAutoSync,
+                onMastered: collectionForm.wordbookOnMastered,
+            }
+        }
+        const saved = await request('saveCollection', {
             id: editingCollectionId.value,
             language: collectionForm.language,
             name: collectionForm.name,
             description: collectionForm.description,
             pinned: collectionForm.pinned,
+            wordbook,
         })
         collectionModalOpen.value = false
         await refresh()
+        const bindingChanged =
+            Boolean(wordbook) &&
+            (previousBinding?.profileId !== wordbook?.profileId ||
+                previousBinding?.categoryId !== wordbook?.categoryId)
+        if (bindingChanged && wordbook) {
+            const learningCount = words.value.filter(
+                (word) => wordCollectionId(word) === saved.id && word.state === 'learning',
+            ).length
+            if (learningCount > 0) {
+                wordbookSyncPrompt.value = {
+                    collectionId: saved.id,
+                    collectionName: saved.name,
+                    categoryName: wordbook.categoryName || wordbook.categoryId,
+                    learningCount,
+                }
+            }
+        }
     } catch (reason) {
         modalError.value = errorMessage(reason)
     } finally {
@@ -267,6 +522,104 @@ async function togglePin(collection: VocabularyCollection) {
         error.value = errorMessage(reason)
     } finally {
         pinPending.value.delete(collection.id)
+    }
+}
+
+function openDeleteCollection(collection: VocabularyCollection) {
+    if (collections.value.length <= 1) {
+        modalError.value = t('library.cannotDeleteLastCollection')
+        return
+    }
+    collectionModalOpen.value = false
+    deletingCollection.value = collection
+    deleteCollectionMode.value = 'move'
+    const fallback = sortedCollections.value.find((item) => item.id !== collection.id)
+    deleteTargetCollectionId.value = fallback?.id ?? ''
+    modalError.value = ''
+}
+
+async function confirmDeleteCollection() {
+    const target = deletingCollection.value
+    if (!target || collectionDeleting.value) return
+    collectionDeleting.value = true
+    modalError.value = ''
+    try {
+        const mode: DeleteCollectionMode =
+            deletingCollectionWordCount.value > 0 ? deleteCollectionMode.value : 'delete'
+        const result = await request('deleteCollection', {
+            id: target.id,
+            mode,
+            targetCollectionId: mode === 'move' ? deleteTargetCollectionId.value || undefined : undefined,
+        })
+        deletingCollection.value = undefined
+        if (inCollection.value && activeCollection.value === target.id) {
+            location.hash = 'library'
+        }
+        if (mode === 'move' && result.movedWords > 0) {
+            status.value = t('library.collectionDeletedMoved', {
+                name: target.name,
+                count: result.movedWords,
+            })
+        } else if (mode === 'delete' && result.deletedWords > 0) {
+            status.value = t('library.collectionDeletedWithWords', {
+                name: target.name,
+                count: result.deletedWords,
+            })
+        } else {
+            status.value = t('library.collectionDeleted', { name: target.name })
+        }
+        error.value = ''
+        await refresh()
+    } catch (reason) {
+        modalError.value = errorMessage(reason)
+    } finally {
+        collectionDeleting.value = false
+    }
+}
+
+function toggleSelectWord(key: string) {
+    const next = new Set(selectedKeys.value)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    selectedKeys.value = next
+}
+
+function toggleSelectAllPage() {
+    const next = new Set(selectedKeys.value)
+    if (allPageSelected.value) {
+        for (const word of rows.value) next.delete(word.key)
+    } else {
+        for (const word of rows.value) next.add(word.key)
+    }
+    selectedKeys.value = next
+}
+
+function clearSelection() {
+    selectedKeys.value = new Set()
+}
+
+function openBulkDelete() {
+    modalError.value = ''
+    bulkDeleteOpen.value = true
+}
+
+async function confirmBulkDelete() {
+    if (!selectedKeys.value.size || bulkDeleting.value) return
+    bulkDeleting.value = true
+    modalError.value = ''
+    try {
+        const keys = [...selectedKeys.value]
+        const deleted = await request('deleteWords', keys)
+        bulkDeleteOpen.value = false
+        selectedKeys.value = new Set()
+        if (selected.value && keys.includes(selected.value)) selected.value = ''
+        status.value = t('library.bulkDeleted', { count: deleted })
+        error.value = ''
+        await refresh()
+    } catch (reason) {
+        modalError.value = errorMessage(reason)
+    } finally {
+        bulkDeleting.value = false
     }
 }
 
@@ -508,10 +861,25 @@ onBeforeUnmount(() => {
                     <Plus :size="16" />
                     {{ t('library.addCollection') }}
                 </button>
-                <button v-else type="button" class="primary" @click="openAddWord">
-                    <Plus :size="16" />
-                    {{ t('library.addWord') }}
-                </button>
+                <div v-else class="row" style="margin: 0">
+                    <button type="button" class="primary" @click="openAddWord">
+                        <Plus :size="16" />
+                        {{ t('library.addWord') }}
+                    </button>
+                    <button
+                        v-if="currentCollectionHasWordbook && currentCollection"
+                        type="button"
+                        :disabled="syncingWordbookId === currentCollection.id"
+                        @click="runManualWordbookSync(currentCollection.id)"
+                    >
+                        <RefreshCw :size="14" />
+                        {{
+                            syncingWordbookId === currentCollection.id
+                                ? t('library.wordbookSyncing')
+                                : t('library.wordbookSyncNow')
+                        }}
+                    </button>
+                </div>
 
                 <div v-if="!inCollection" class="toolbar-controls">
                     <button type="button" @click="backup">
@@ -535,6 +903,7 @@ onBeforeUnmount(() => {
                         :options="filterOptions"
                         :aria-label="t('library.filter')"
                     />
+                    <ShadcnSelect v-model="sortBy" :options="sortOptions" :aria-label="t('library.sort')" />
                     <div class="search-field">
                         <Search :size="15" />
                         <input
@@ -653,6 +1022,18 @@ onBeforeUnmount(() => {
                     </a>
                 </div>
                 <template v-else>
+                    <div v-if="selectedKeys.size > 0" class="bulk-action-bar" role="region">
+                        <span>{{ t('library.selectedCount', { count: selectedKeys.size }) }}</span>
+                        <div class="bulk-actions">
+                            <button type="button" @click="clearSelection">
+                                {{ t('library.clearSelection') }}
+                            </button>
+                            <button type="button" class="destructive" @click="openBulkDelete">
+                                <Trash2 :size="14" />
+                                {{ t('library.bulkDelete') }}
+                            </button>
+                        </div>
+                    </div>
                     <div class="word-table-scroll">
                         <table class="word-table">
                             <thead>
@@ -661,10 +1042,25 @@ onBeforeUnmount(() => {
                                     <th>{{ t('library.tableMeaning') }}</th>
                                     <th>{{ t('library.tableRating') }}</th>
                                     <th style="text-align: right">{{ t('library.tableActions') }}</th>
+                                    <th class="checkbox-col">
+                                        <input
+                                            type="checkbox"
+                                            class="row-checkbox"
+                                            :checked="allPageSelected"
+                                            :indeterminate.prop="somePageSelected"
+                                            :disabled="!rows.length"
+                                            :aria-label="t('library.selectAllPage')"
+                                            @change="toggleSelectAllPage"
+                                        />
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="word in rows" :key="word.key">
+                                <tr
+                                    v-for="word in rows"
+                                    :key="word.key"
+                                    :class="{ 'is-selected': selectedKeys.has(word.key) }"
+                                >
                                     <td>
                                         <div class="collection-term">
                                             <button
@@ -707,6 +1103,15 @@ onBeforeUnmount(() => {
                                         >
                                             <Pencil :size="14" />
                                         </button>
+                                    </td>
+                                    <td class="checkbox-col">
+                                        <input
+                                            type="checkbox"
+                                            class="row-checkbox"
+                                            :checked="selectedKeys.has(word.key)"
+                                            :aria-label="t('library.selectWord', { word: word.text })"
+                                            @change="toggleSelectWord(word.key)"
+                                        />
                                     </td>
                                 </tr>
                             </tbody>
@@ -795,16 +1200,264 @@ onBeforeUnmount(() => {
                         :placeholder="t('library.collectionDescriptionPlaceholder')"
                     />
                 </label>
+                <div class="wordbook-config-box">
+                    <span class="field-caption">{{ t('library.wordbookHeading') }}</span>
+                    <p v-if="!wordbookProfiles.length" class="muted small" style="margin: 4px 0 0">
+                        {{ t('library.wordbookConfigureFirst') }}
+                    </p>
+                    <template v-else>
+                        <div class="field" style="margin: 8px 0">
+                            <span>{{ t('library.wordbookProfile') }}</span>
+                            <ShadcnSelect
+                                :model-value="collectionForm.wordbookProfileId"
+                                :options="wordbookProfileOptions"
+                                :aria-label="t('library.wordbookProfile')"
+                                @update:model-value="handleWordbookProfileChange"
+                            />
+                        </div>
+                        <template v-if="collectionForm.wordbookProfileId">
+                            <div class="field" style="margin: 8px 0">
+                                <span>{{ t('library.wordbookCategory') }}</span>
+                                <div class="copy-row">
+                                    <ShadcnSelect
+                                        v-if="wordbookCategoryOptions.length"
+                                        :model-value="collectionForm.wordbookCategoryId"
+                                        :options="wordbookCategoryOptions"
+                                        :aria-label="t('library.wordbookCategory')"
+                                        @update:model-value="handleWordbookCategoryChange"
+                                    />
+                                    <span v-else class="muted small" style="flex: 1">
+                                        {{ t('library.wordbookCategoryEmpty') }}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        :disabled="loadingWordbookCategories"
+                                        @click="loadWordbookCategoriesForForm"
+                                    >
+                                        <RefreshCw :size="13" />
+                                        {{
+                                            loadingWordbookCategories
+                                                ? t('library.wordbookLoadingCategories')
+                                                : t('library.wordbookLoadCategories')
+                                        }}
+                                    </button>
+                                </div>
+                            </div>
+                            <label class="checkbox-field">
+                                <input
+                                    v-model="collectionForm.wordbookAutoSync"
+                                    type="checkbox"
+                                    class="row-checkbox"
+                                />
+                                <span>
+                                    <strong>{{ t('library.wordbookAutoSync') }}</strong>
+                                    <small class="muted">{{ t('library.wordbookAutoSyncHint') }}</small>
+                                </span>
+                            </label>
+                            <div class="field" style="margin: 8px 0">
+                                <span>{{ t('library.wordbookMasteredLabel') }}</span>
+                                <ShadcnSelect
+                                    :model-value="collectionForm.wordbookOnMastered"
+                                    :options="masteredActionOptions"
+                                    :aria-label="t('library.wordbookMasteredLabel')"
+                                    @update:model-value="handleWordbookMasteredChange"
+                                />
+                            </div>
+                            <div
+                                v-if="
+                                    editingCollection &&
+                                    editingCollection.wordbook?.profileId ===
+                                        collectionForm.wordbookProfileId &&
+                                    editingCollection.wordbook?.categoryId ===
+                                        collectionForm.wordbookCategoryId
+                                "
+                                style="margin-top: 8px"
+                            >
+                                <button
+                                    type="button"
+                                    :disabled="syncingWordbookId === editingCollection.id"
+                                    @click="runManualWordbookSync(editingCollection.id)"
+                                >
+                                    <RefreshCw :size="13" />
+                                    {{
+                                        syncingWordbookId === editingCollection.id
+                                            ? t('library.wordbookSyncing')
+                                            : t('library.wordbookSyncNow')
+                                    }}
+                                </button>
+                            </div>
+                        </template>
+                    </template>
+                </div>
+                <p v-if="modalError" class="error small" role="alert">{{ modalError }}</p>
+                <div class="modal-footer" :class="{ between: editingCollection && collections.length > 1 }">
+                    <button
+                        v-if="editingCollection && collections.length > 1"
+                        type="button"
+                        class="destructive"
+                        :disabled="collectionSaving"
+                        @click="openDeleteCollection(editingCollection)"
+                    >
+                        <Trash2 :size="14" />
+                        {{ t('library.deleteCollection') }}
+                    </button>
+                    <div class="row" style="margin: 0">
+                        <button type="button" @click="collectionModalOpen = false">
+                            {{ t('common.cancel') }}
+                        </button>
+                        <button class="primary" type="submit" :disabled="collectionSaving">
+                            {{ t('library.saveCollection') }}
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div v-if="deletingCollection" class="modal-backdrop" @click.self="deletingCollection = undefined">
+            <form class="modal" @submit.prevent="confirmDeleteCollection">
+                <div class="row between" style="margin-top: 0">
+                    <h2>{{ t('library.deleteCollectionTitle') }}</h2>
+                    <button
+                        class="icon-button"
+                        type="button"
+                        :aria-label="t('library.closeDeleteCollectionModal')"
+                        @click="deletingCollection = undefined"
+                    >
+                        <X :size="18" />
+                    </button>
+                </div>
+                <p class="muted small" style="margin: 12px 0">
+                    {{
+                        deletingCollectionWordCount > 0
+                            ? t('library.collectionDeleteDesc', {
+                                  name: deletingCollection.name,
+                                  count: deletingCollectionWordCount,
+                              })
+                            : t('library.collectionDeleteEmptyDesc', { name: deletingCollection.name })
+                    }}
+                </p>
+                <div v-if="deletingCollectionWordCount > 0" class="radio-card-list">
+                    <label class="radio-card" :class="{ selected: deleteCollectionMode === 'move' }">
+                        <input
+                            v-model="deleteCollectionMode"
+                            type="radio"
+                            name="delete-collection-mode"
+                            value="move"
+                        />
+                        <div class="radio-card-body">
+                            <strong>{{ t('library.collectionDeleteModeMove') }}</strong>
+                            <span class="muted small">
+                                {{
+                                    t('library.collectionDeleteModeMoveHint', {
+                                        count: deletingCollectionWordCount,
+                                    })
+                                }}
+                            </span>
+                            <div v-if="deleteCollectionMode === 'move'" class="radio-card-extra">
+                                <ShadcnSelect
+                                    v-model="deleteTargetCollectionId"
+                                    :options="deleteTargetOptions"
+                                    :aria-label="t('library.collectionDeleteTarget')"
+                                />
+                            </div>
+                        </div>
+                    </label>
+                    <label
+                        class="radio-card is-danger"
+                        :class="{ selected: deleteCollectionMode === 'delete' }"
+                    >
+                        <input
+                            v-model="deleteCollectionMode"
+                            type="radio"
+                            name="delete-collection-mode"
+                            value="delete"
+                        />
+                        <div class="radio-card-body">
+                            <strong>{{ t('library.collectionDeleteModeDelete') }}</strong>
+                            <span class="muted small">
+                                {{
+                                    t('library.collectionDeleteModeDeleteHint', {
+                                        count: deletingCollectionWordCount,
+                                    })
+                                }}
+                            </span>
+                        </div>
+                    </label>
+                </div>
                 <p v-if="modalError" class="error small" role="alert">{{ modalError }}</p>
                 <div class="modal-footer">
-                    <button type="button" @click="collectionModalOpen = false">
+                    <button type="button" @click="deletingCollection = undefined">
                         {{ t('common.cancel') }}
                     </button>
-                    <button class="primary" type="submit" :disabled="collectionSaving">
-                        {{ t('library.saveCollection') }}
+                    <button class="destructive" type="submit" :disabled="collectionDeleting">
+                        <Trash2 :size="14" />
+                        {{ t('library.confirmDelete') }}
                     </button>
                 </div>
             </form>
+        </div>
+
+        <div v-if="bulkDeleteOpen" class="modal-backdrop" @click.self="bulkDeleteOpen = false">
+            <form class="modal" @submit.prevent="confirmBulkDelete">
+                <div class="row between" style="margin-top: 0">
+                    <h2>{{ t('library.bulkDeleteTitle') }}</h2>
+                    <button
+                        class="icon-button"
+                        type="button"
+                        :aria-label="t('common.cancel')"
+                        @click="bulkDeleteOpen = false"
+                    >
+                        <X :size="18" />
+                    </button>
+                </div>
+                <p class="muted small" style="margin: 12px 0">
+                    {{ t('library.bulkDeleteConfirm', { count: selectedKeys.size }) }}
+                </p>
+                <p v-if="modalError" class="error small" role="alert">{{ modalError }}</p>
+                <div class="modal-footer">
+                    <button type="button" @click="bulkDeleteOpen = false">
+                        {{ t('common.cancel') }}
+                    </button>
+                    <button class="destructive" type="submit" :disabled="bulkDeleting">
+                        <Trash2 :size="14" />
+                        {{ t('library.confirmDelete') }}
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div v-if="wordbookSyncPrompt" class="modal-backdrop" @click.self="wordbookSyncPrompt = undefined">
+            <div class="modal">
+                <div class="row between" style="margin-top: 0">
+                    <h2>{{ t('library.wordbookPromptTitle') }}</h2>
+                    <button
+                        class="icon-button"
+                        type="button"
+                        :aria-label="t('library.wordbookPromptLater')"
+                        @click="wordbookSyncPrompt = undefined"
+                    >
+                        <X :size="18" />
+                    </button>
+                </div>
+                <p class="muted small" style="margin: 12px 0">
+                    {{
+                        t('library.wordbookPromptMessage', {
+                            name: wordbookSyncPrompt.collectionName,
+                            category: wordbookSyncPrompt.categoryName,
+                            count: wordbookSyncPrompt.learningCount,
+                        })
+                    }}
+                </p>
+                <div class="modal-footer">
+                    <button type="button" @click="wordbookSyncPrompt = undefined">
+                        {{ t('library.wordbookPromptLater') }}
+                    </button>
+                    <button type="button" class="primary" @click="confirmPromptedWordbookSync">
+                        <RefreshCw :size="14" />
+                        {{ t('library.wordbookPromptNow') }}
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div v-if="adding" class="modal-backdrop" @click.self="adding = false">

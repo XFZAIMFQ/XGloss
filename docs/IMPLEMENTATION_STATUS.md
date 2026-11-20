@@ -1,5 +1,15 @@
 # Implementation Status & Verification Log
 
+## 2026-11-20 CI/Release, Multi-Profile Providers, Library Management, Google Drive Sync & External Wordbooks
+
+- Added GitHub Actions workflows (`.github/workflows/ci.yml` for push/PR checks + artifact upload and `.github/workflows/release.yml` for tag-triggered `.zip` GitHub Releases).
+- Added collection deletion (`deleteCollection`) with explicit user choice to either migrate existing words to another chosen collection or permanently delete the collection along with its words, encounters, and activities (preserving at least one collection and falling back `activeCollectionId` cleanly).
+- Added word list sorting (`updated-desc`, `updated-asc`, `alpha-asc`, `alpha-desc`, `level-asc`, `level-desc`) right next to the state filter in Library, plus right-side row/page checkboxes and atomic batch deletion (`deleteWords`).
+- Upgraded Translation Settings (`options.html`) to multi-profile OpenAI-compatible provider cards (`translationProviders`) with one-click switching, per-provider testing, deletion, and automatic migration from legacy single-provider settings.
+- Added free Google Drive `appDataFolder` cloud sync (`src/services/google-drive-sync.ts`) using `browser.identity.launchWebAuthFlow()`, user-configurable OAuth Client ID, copyable Redirect URI, CSRF state validation, remote merge via `importVocabulary`, and JSON v2 upload.
+- Added multi-profile external wordbook accounts (`src/services/wordbook-sync.ts`) supporting both **Eudic (欧路词典)** and **MaiMemo (墨墨背单词)** with per-collection binding in Library, opt-in auto-sync (default OFF), mastered-word keep/remove choice, explicit post-binding confirmation before syncing existing learning words, and manual append-only sync.
+- Verified with `npm run typecheck`, `npm run lint`, `npm test` (42/42 passing across domain, repository, translation, Google Drive sync, and Eudic/MaiMemo adapters), `npm run build` (`6.48 MB`), `npm run zip` (`3.06 MB`), and Playwright Chromium smoke tests (`tests/browser-smoke.mjs`) verifying multi-provider CRUD/switching, sorting, right-side checkboxes + bulk delete, collection delete, `optionsOnly` secret isolation, and UI screenshots.
+
 ## 2026-11-19 Shadcn UI Redesign, Trigger Modes & Multi-Language Controls
 
 - Removed the bundled offline ECDICT dictionary (`public/dictionary/`, `scripts/prepare-dictionary.mjs`, `src/services/dictionary.ts`) to reduce bundle size and rely on contextual online translation + saved word meanings; tightened the translation prompt with `temperature: 0.1`, explicit anti-source-echo rules, and cache `version: 4`.

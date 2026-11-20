@@ -1,26 +1,193 @@
+import { t } from '../i18n'
 import { browser } from 'wxt/browser'
+import { z } from 'zod'
 import {
     defaultTranslationSettings,
     definitionModeSchema,
+    googleSyncConfigSchema,
     selectionTriggerSchema,
     sourceLanguageSchema,
     translationLanguagesSchema,
+    translationProviderInputSchema,
+    translationProvidersStateSchema,
     translationSettingsSchema,
+    wordbookProfileInputSchema,
+    wordbookProfileSchema,
+    type GoogleSyncConfig,
     type SelectionTrigger,
     type SourceLanguage,
     type TranslationLanguages,
+    type TranslationProvider,
+    type TranslationProvidersState,
+    type TranslationSettings,
+    type WordbookProfile,
+    type WordbookProfileSummary,
 } from '../domain/models'
 
-export async function loadSettings() {
-    const stored = await browser.storage.local.get('translation')
+function inferProviderName(baseUrl: string): string {
+    const trimmed = baseUrl.trim()
+    if (!trimmed) return 'Default'
+    try {
+        const { hostname } = new URL(trimmed)
+        const lower = hostname.toLowerCase()
+        if (lower.includes('deepseek')) return 'DeepSeek'
+        if (lower.includes('openai')) return 'OpenAI'
+        if (lower.includes('anthropic')) return 'Anthropic'
+        if (lower.includes('openrouter')) return 'OpenRouter'
+        if (['localhost', '127.0.0.1', '[::1]'].includes(lower)) return 'Local LLM'
+        return hostname
+    } catch {
+        return 'Default'
+    }
+}
+
+export function providerToTranslationSettings(
+    provider: TranslationProvider | undefined,
+    targetLanguage: string,
+): TranslationSettings {
     return translationSettingsSchema.parse({
-        ...defaultTranslationSettings,
-        ...translationSettingsSchema.partial().parse(stored.translation ?? {}),
+        baseUrl: provider?.baseUrl ?? '',
+        apiKey: provider?.apiKey ?? '',
+        model: provider?.model ?? '',
+        targetLanguage,
+        timeoutMs: provider?.timeoutMs ?? defaultTranslationSettings.timeoutMs,
     })
 }
 
+function normalizeProvidersState(raw: TranslationProvidersState): TranslationProvidersState {
+    const activeId = raw.providers.some((provider) => provider.id === raw.activeId)
+        ? raw.activeId
+        : (raw.providers[0]?.id ?? '')
+    return { ...raw, activeId }
+}
+
+async function persistProvidersState(state: TranslationProvidersState): Promise<TranslationProvidersState> {
+    const normalized = normalizeProvidersState(translationProvidersStateSchema.parse(state))
+    const active = normalized.providers.find((provider) => provider.id === normalized.activeId)
+    await browser.storage.local.set({
+        translationProviders: normalized,
+        translation: providerToTranslationSettings(active, normalized.targetLanguage),
+    })
+    return normalized
+}
+
+export async function loadTranslationProviders(): Promise<TranslationProvidersState> {
+    const stored = await browser.storage.local.get(['translationProviders', 'translation'])
+    const parsedLegacy = translationSettingsSchema.parse({
+        ...defaultTranslationSettings,
+        ...translationSettingsSchema.partial().parse(stored.translation ?? {}),
+    })
+    if (stored.translationProviders !== undefined) {
+        const parsed = translationProvidersStateSchema.safeParse(stored.translationProviders)
+        if (parsed.success) {
+            return normalizeProvidersState({
+                ...parsed.data,
+                targetLanguage: parsed.data.targetLanguage || parsedLegacy.targetLanguage,
+            })
+        }
+    }
+    if (parsedLegacy.baseUrl.trim() || parsedLegacy.model.trim()) {
+        return {
+            activeId: 'default',
+            providers: [
+                {
+                    id: 'default',
+                    name: inferProviderName(parsedLegacy.baseUrl),
+                    baseUrl: parsedLegacy.baseUrl,
+                    apiKey: parsedLegacy.apiKey,
+                    model: parsedLegacy.model,
+                    timeoutMs: parsedLegacy.timeoutMs,
+                },
+            ],
+            targetLanguage: parsedLegacy.targetLanguage,
+        }
+    }
+    return {
+        activeId: '',
+        providers: [],
+        targetLanguage: parsedLegacy.targetLanguage,
+    }
+}
+
+export async function saveTranslationProvider(
+    rawInput: unknown,
+): Promise<{ state: TranslationProvidersState; provider: TranslationProvider }> {
+    const input = translationProviderInputSchema.parse(rawInput)
+    const current = await loadTranslationProviders()
+    const id = input.id ?? crypto.randomUUID()
+    const provider: TranslationProvider = {
+        id,
+        name: input.name,
+        baseUrl: input.baseUrl,
+        apiKey: input.apiKey,
+        model: input.model,
+        timeoutMs: input.timeoutMs,
+    }
+    const index = current.providers.findIndex((item) => item.id === id)
+    const providers =
+        index >= 0
+            ? current.providers.map((item, i) => (i === index ? provider : item))
+            : [...current.providers, provider]
+    const shouldActivate = input.activate === true || !current.activeId || providers.length === 1
+    const state = await persistProvidersState({
+        ...current,
+        providers,
+        activeId: shouldActivate ? provider.id : current.activeId,
+    })
+    return { state, provider }
+}
+
+export async function deleteTranslationProvider(id: string): Promise<TranslationProvidersState> {
+    const current = await loadTranslationProviders()
+    if (!current.providers.some((provider) => provider.id === id)) {
+        throw new Error(t('settings.providerNotFound'))
+    }
+    const providers = current.providers.filter((provider) => provider.id !== id)
+    const activeId = current.activeId === id ? (providers[0]?.id ?? '') : current.activeId
+    return persistProvidersState({ ...current, providers, activeId })
+}
+
+export async function setActiveTranslationProvider(id: string): Promise<TranslationProvidersState> {
+    const current = await loadTranslationProviders()
+    if (!current.providers.some((provider) => provider.id === id)) {
+        throw new Error(t('settings.providerNotFound'))
+    }
+    return persistProvidersState({ ...current, activeId: id })
+}
+
+export async function saveTargetLanguage(targetLanguage: string): Promise<TranslationProvidersState> {
+    const valid = z.string().trim().min(1).max(100).parse(targetLanguage)
+    const current = await loadTranslationProviders()
+    return persistProvidersState({ ...current, targetLanguage: valid })
+}
+
+export async function loadSettings(): Promise<TranslationSettings> {
+    const state = await loadTranslationProviders()
+    const active = state.providers.find((provider) => provider.id === state.activeId)
+    return providerToTranslationSettings(active, state.targetLanguage)
+}
+
 export async function saveSettings(input: unknown): Promise<void> {
-    await browser.storage.local.set({ translation: translationSettingsSchema.parse(input) })
+    const parsed = translationSettingsSchema.parse(input)
+    const current = await loadTranslationProviders()
+    const existing = current.providers.find((provider) => provider.id === current.activeId)
+    const id = existing?.id ?? 'default'
+    const provider: TranslationProvider = {
+        id,
+        name: existing?.name ?? inferProviderName(parsed.baseUrl),
+        baseUrl: parsed.baseUrl,
+        apiKey: parsed.apiKey,
+        model: parsed.model,
+        timeoutMs: parsed.timeoutMs,
+    }
+    const providers = existing
+        ? current.providers.map((item) => (item.id === id ? provider : item))
+        : [...current.providers, provider]
+    await persistProvidersState({
+        activeId: id,
+        providers,
+        targetLanguage: parsed.targetLanguage,
+    })
 }
 
 export async function loadDefinitionMode() {
@@ -100,20 +267,81 @@ export async function saveSourceLanguage(language: SourceLanguage): Promise<Sour
 }
 
 export async function loadTranslationLanguages(): Promise<TranslationLanguages> {
-    const [sourceLanguage, settings] = await Promise.all([loadSourceLanguage(), loadSettings()])
+    const [sourceLanguage, state] = await Promise.all([loadSourceLanguage(), loadTranslationProviders()])
     return {
         sourceLanguage,
-        targetLanguage: settings.targetLanguage,
+        targetLanguage: state.targetLanguage,
     }
 }
 
 export async function saveTranslationLanguages(input: unknown): Promise<TranslationLanguages> {
     const next = translationLanguagesSchema.parse(input)
-    const current = await loadSettings()
+    const current = await loadTranslationProviders()
     const writes: Promise<unknown>[] = [browser.storage.local.set({ sourceLanguage: next.sourceLanguage })]
     if (current.targetLanguage !== next.targetLanguage) {
-        writes.push(saveSettings({ ...current, targetLanguage: next.targetLanguage }))
+        writes.push(saveTargetLanguage(next.targetLanguage))
     }
     await Promise.all(writes)
     return next
+}
+
+export async function loadGoogleSyncConfig(): Promise<GoogleSyncConfig> {
+    const stored = await browser.storage.local.get('googleSync')
+    return googleSyncConfigSchema.parse(stored.googleSync ?? {})
+}
+
+export async function saveGoogleSyncConfig(patch: Partial<GoogleSyncConfig>): Promise<GoogleSyncConfig> {
+    const current = await loadGoogleSyncConfig()
+    const next = googleSyncConfigSchema.parse({ ...current, ...patch })
+    await browser.storage.local.set({ googleSync: next })
+    return next
+}
+
+export async function clearGoogleSyncAuth(): Promise<GoogleSyncConfig> {
+    return saveGoogleSyncConfig({
+        accessToken: '',
+        tokenExpiresAt: 0,
+        accountEmail: '',
+    })
+}
+
+export async function loadWordbookProfiles(): Promise<WordbookProfile[]> {
+    const stored = await browser.storage.local.get('wordbookProfiles')
+    const parsed = z.array(wordbookProfileSchema).max(50).safeParse(stored.wordbookProfiles)
+    return parsed.success ? parsed.data : []
+}
+
+export async function listWordbookProfileSummaries(): Promise<WordbookProfileSummary[]> {
+    const profiles = await loadWordbookProfiles()
+    return profiles.map(({ id, name, type }) => ({ id, name, type }))
+}
+
+export async function saveWordbookProfile(
+    rawInput: unknown,
+): Promise<{ profiles: WordbookProfile[]; profile: WordbookProfile }> {
+    const input = wordbookProfileInputSchema.parse(rawInput)
+    const current = await loadWordbookProfiles()
+    const now = Date.now()
+    const existing = input.id ? current.find((item) => item.id === input.id) : undefined
+    const profile: WordbookProfile = wordbookProfileSchema.parse({
+        id: existing?.id ?? input.id ?? crypto.randomUUID(),
+        name: input.name,
+        type: input.type,
+        token: input.token,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+    })
+    const profiles = existing
+        ? current.map((item) => (item.id === profile.id ? profile : item))
+        : [...current, profile]
+    await browser.storage.local.set({ wordbookProfiles: profiles })
+    return { profiles, profile }
+}
+
+export async function deleteWordbookProfile(id: string): Promise<WordbookProfile[]> {
+    const current = await loadWordbookProfiles()
+    if (!current.some((item) => item.id === id)) throw new Error(t('wordbook.profileNotFound'))
+    const profiles = current.filter((item) => item.id !== id)
+    await browser.storage.local.set({ wordbookProfiles: profiles })
+    return profiles
 }

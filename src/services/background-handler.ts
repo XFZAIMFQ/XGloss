@@ -3,7 +3,9 @@ import { browser } from 'wxt/browser'
 import { z } from 'zod'
 import { database } from '../data/database'
 import {
+    deleteCollection,
     deleteWord,
+    deleteWords,
     exportVocabulary,
     importVocabulary,
     listCollections,
@@ -14,8 +16,13 @@ import {
     updateWord,
 } from '../data/vocabulary-repository'
 import {
+    clearGoogleSyncAuth,
+    deleteTranslationProvider,
+    deleteWordbookProfile,
+    listWordbookProfileSummaries,
     loadActiveCollectionId,
     loadDefinitionMode,
+    loadGoogleSyncConfig,
     loadRecall,
     loadSelectionTrigger,
     loadSettings,
@@ -23,22 +30,33 @@ import {
     loadSourceLanguage,
     loadSpotlight,
     loadTranslationLanguages,
+    loadTranslationProviders,
+    loadWordbookProfiles,
+    providerToTranslationSettings,
     saveActiveCollectionId,
     saveDefinitionMode,
+    saveGoogleSyncConfig,
     saveRecall,
     saveSelectionTrigger,
     saveSettings,
     saveSiteReading,
     saveSourceLanguage,
     saveSpotlight,
+    saveTargetLanguage,
     saveTranslationLanguages,
+    saveTranslationProvider,
+    saveWordbookProfile,
+    setActiveTranslationProvider,
 } from '../data/settings'
 import { webHostname } from '../platform/web-site'
 import { summarizeActivity } from '../domain/activity'
-import { activeCollectionId } from '../domain/collections'
+import { activeCollectionId, wordCollectionId } from '../domain/collections'
+import { normalizeWord } from '../domain/vocabulary'
 import {
     collectionIdSchema,
     collectionLanguageSchema,
+    collectionWordbookSchema,
+    deleteCollectionInputSchema,
     errorMessage,
     pdfBookmarkSchema,
     savedMeaningSchema,
@@ -46,10 +64,28 @@ import {
     sourceSchema,
     translationInputSchema,
     translationLanguagesSchema,
+    type GoogleSyncConfig,
+    type GoogleSyncState,
     type TranslationResult,
+    type TranslationSettings,
+    type WordState,
     wordRatingSchema,
 } from '../domain/models'
 import { completionEndpoint, requestTranslation, translationCacheKey } from './openai-translation'
+import {
+    authorizeGoogleDrive,
+    googleApiOrigin,
+    GoogleAuthExpiredError,
+    googleRedirectUri,
+    syncBackupWithGoogleDrive,
+} from './google-drive-sync'
+import {
+    appendWordsToWordbook,
+    enqueueWordbookTask,
+    listWordbookCategories,
+    removeWordsFromWordbook,
+    wordbookOrigin,
+} from './wordbook-sync'
 
 const envelopeSchema = z.object({
     channel: z.literal('xgloss'),
@@ -66,17 +102,37 @@ const ongoingTranslations = new Map<
         consumers: number
     }
 >()
-const privileged = new Set([
+const optionsOnly = new Set([
     'settings',
     'saveSettings',
     'saveDefinitionMode',
+    'translationProviders',
+    'saveTranslationProvider',
+    'deleteTranslationProvider',
+    'setActiveTranslationProvider',
+    'saveTargetLanguage',
+    'testTranslationProvider',
+    'googleSyncState',
+    'saveGoogleClientId',
+    'connectGoogleSync',
+    'disconnectGoogleSync',
+    'runGoogleSync',
+    'wordbookProfiles',
+    'saveWordbookProfile',
+    'deleteWordbookProfile',
+    'testWordbookProfile',
+])
+const privileged = new Set([
+    ...optionsOnly,
     'export',
     'import',
     'collections',
     'saveCollection',
     'toggleCollectionPin',
+    'deleteCollection',
     'updateWord',
     'deleteWord',
+    'deleteWords',
     'encounters',
     'wordDetails',
     'activityCounts',
@@ -90,7 +146,49 @@ const privileged = new Set([
     'setTranslationLanguages',
     'activeCollection',
     'setActiveCollection',
+    'wordbookProfileSummaries',
+    'wordbookCategories',
+    'syncCollectionWordbook',
 ])
+
+function toGoogleSyncState(config: GoogleSyncConfig): GoogleSyncState {
+    const connected = Boolean(config.accessToken && config.tokenExpiresAt > Date.now())
+    return {
+        clientId: config.clientId,
+        redirectUri: googleRedirectUri(),
+        connected,
+        accountEmail: connected ? config.accountEmail : '',
+        lastSyncedAt: config.lastSyncedAt,
+        lastSyncSummary: config.lastSyncSummary,
+    }
+}
+
+async function scheduleAutoWordbookSync(
+    wordText: string,
+    state: WordState,
+    collectionId: string,
+): Promise<void> {
+    if (state === 'ignored') return
+    const [collections, profiles] = await Promise.all([listCollections(), loadWordbookProfiles()])
+    const collection = collections.find((item) => item.id === collectionId)
+    const binding = collection?.wordbook
+    if (!collection || !binding?.autoSync) return
+    const profile = profiles.find((item) => item.id === binding.profileId)
+    if (!profile) return
+    const hasPermission = await browser.permissions.contains({
+        origins: [`${wordbookOrigin(profile.type)}/*`],
+    })
+    if (!hasPermission) return
+    if (state === 'learning') {
+        enqueueWordbookTask(profile.id, async () => {
+            await appendWordsToWordbook(profile, binding.categoryId, collection.language, [wordText])
+        })
+    } else if (state === 'known' && binding.onMastered === 'remove') {
+        enqueueWordbookTask(profile.id, async () => {
+            await removeWordsFromWordbook(profile, binding.categoryId, collection.language, [wordText])
+        })
+    }
+}
 
 function activityRange(input: unknown, maxDays: number) {
     const date = z.number().int().min(0).max(8.64e15)
@@ -127,10 +225,7 @@ export async function handleMessage(raw: unknown, sender: Browser.runtime.Messag
         const extensionPage = sender.url?.startsWith(browser.runtime.getURL('/')) ?? false
         if (privileged.has(message.operation) && !extensionPage)
             throw new Error(t('background.extensionOnly'))
-        if (
-            ['settings', 'saveSettings', 'saveDefinitionMode'].includes(message.operation) &&
-            sender.url !== browser.runtime.getURL('/options.html')
-        ) {
+        if (optionsOnly.has(message.operation) && sender.url !== browser.runtime.getURL('/options.html')) {
             throw new Error(t('background.optionsOnly'))
         }
         const value = await execute(message, sender)
@@ -239,6 +334,7 @@ async function execute(
                     name: z.string().trim().min(1).max(80),
                     description: z.string().trim().max(300).default(''),
                     pinned: z.boolean().optional(),
+                    wordbook: collectionWordbookSchema.nullable().optional(),
                 })
                 .parse(message.input)
             const saved = await saveCollection(input)
@@ -249,6 +345,28 @@ async function execute(
             const updated = await toggleCollectionPin(collectionIdSchema.parse(message.input))
             await notifyChanged({ event: 'vocabularyChanged' })
             return updated
+        }
+        case 'deleteCollection': {
+            const input = deleteCollectionInputSchema.parse(message.input)
+            const storedActiveId = await loadActiveCollectionId()
+            const result = await deleteCollection(input)
+            const notifications: Promise<unknown>[] = [notifyChanged({ event: 'vocabularyChanged' })]
+            if (storedActiveId === input.id) {
+                await Promise.all([
+                    saveActiveCollectionId(result.fallbackCollectionId),
+                    saveSourceLanguage(result.fallbackLanguage),
+                ])
+                notifications.push(
+                    notifyChanged({ event: 'activeCollectionChanged' }),
+                    notifyChanged({ event: 'translationLanguagesChanged' }),
+                )
+            }
+            await Promise.all(notifications)
+            return {
+                deletedWords: result.deletedWords,
+                movedWords: result.movedWords,
+                fallbackCollectionId: result.fallbackCollectionId,
+            }
         }
         case 'saveWord': {
             const input = wordRatingSchema
@@ -268,6 +386,14 @@ async function execute(
                 id: message.requestId,
                 defaultCollectionId,
             })
+            const savedRecord = await db.get('words', normalizeWord(input.text))
+            if (savedRecord) {
+                void scheduleAutoWordbookSync(
+                    savedRecord.text,
+                    savedRecord.state,
+                    wordCollectionId(savedRecord),
+                ).catch(() => undefined)
+            }
             await notifyChanged({ event: 'vocabularyChanged' })
             return null
         }
@@ -283,6 +409,9 @@ async function execute(
             if (input.state !== 'learning' && input.level !== undefined)
                 throw new Error(t('rating.invalidLevel'))
             const updated = await updateWord(input)
+            void scheduleAutoWordbookSync(updated.text, updated.state, wordCollectionId(updated)).catch(
+                () => undefined,
+            )
             await notifyChanged({ event: 'vocabularyChanged' })
             return updated
         }
@@ -290,6 +419,12 @@ async function execute(
             await deleteWord(z.string().min(1).max(200).parse(message.input))
             await notifyChanged({ event: 'vocabularyChanged' })
             return null
+        }
+        case 'deleteWords': {
+            const keys = z.array(z.string().min(1).max(200)).max(5000).parse(message.input)
+            const deleted = await deleteWords(keys)
+            if (deleted > 0) await notifyChanged({ event: 'vocabularyChanged' })
+            return deleted
         }
         case 'encounterMeaning': {
             const input = z
@@ -314,6 +449,163 @@ async function execute(
             await saveSettings(message.input)
             await notifyChanged({ event: 'translationLanguagesChanged' })
             return null
+        case 'translationProviders':
+            return loadTranslationProviders()
+        case 'saveTranslationProvider':
+            return saveTranslationProvider(message.input)
+        case 'deleteTranslationProvider':
+            return deleteTranslationProvider(z.string().trim().min(1).max(100).parse(message.input))
+        case 'setActiveTranslationProvider':
+            return setActiveTranslationProvider(z.string().trim().min(1).max(100).parse(message.input))
+        case 'saveTargetLanguage': {
+            const state = await saveTargetLanguage(z.string().trim().min(1).max(100).parse(message.input))
+            await notifyChanged({ event: 'translationLanguagesChanged' })
+            return state
+        }
+        case 'testTranslationProvider': {
+            const providerId = z.string().trim().min(1).max(100).parse(message.input)
+            const state = await loadTranslationProviders()
+            const provider = state.providers.find((item) => item.id === providerId)
+            if (!provider) throw new Error(t('settings.providerNotFound'))
+            const owner = `${sender.tab?.id ?? sender.documentId ?? 'extension'}:${sender.frameId ?? 0}:`
+            return translate(
+                owner + message.requestId,
+                {
+                    text: 'register',
+                    context: 'Write the value to the hardware register.',
+                },
+                providerToTranslationSettings(provider, state.targetLanguage),
+            )
+        }
+        case 'googleSyncState':
+            return toGoogleSyncState(await loadGoogleSyncConfig())
+        case 'saveGoogleClientId': {
+            const clientId = z.string().trim().max(300).parse(message.input)
+            const current = await loadGoogleSyncConfig()
+            const changed = current.clientId !== clientId
+            const updated = await saveGoogleSyncConfig(
+                changed ? { clientId, accessToken: '', tokenExpiresAt: 0, accountEmail: '' } : { clientId },
+            )
+            return toGoogleSyncState(updated)
+        }
+        case 'connectGoogleSync': {
+            const config = await loadGoogleSyncConfig()
+            if (!config.clientId.trim()) throw new Error(t('sync.clientIdRequired'))
+            if (!(await browser.permissions.contains({ origins: [`${googleApiOrigin}/*`] }))) {
+                throw new Error(t('sync.permissionRequired'))
+            }
+            const auth = await authorizeGoogleDrive(config.clientId)
+            const updated = await saveGoogleSyncConfig({
+                accessToken: auth.accessToken,
+                tokenExpiresAt: auth.tokenExpiresAt,
+                accountEmail: auth.accountEmail,
+            })
+            return toGoogleSyncState(updated)
+        }
+        case 'disconnectGoogleSync':
+            return toGoogleSyncState(await clearGoogleSyncAuth())
+        case 'runGoogleSync': {
+            let config = await loadGoogleSyncConfig()
+            if (!config.clientId.trim()) throw new Error(t('sync.clientIdRequired'))
+            if (!(await browser.permissions.contains({ origins: [`${googleApiOrigin}/*`] }))) {
+                throw new Error(t('sync.permissionRequired'))
+            }
+            if (!config.accessToken || config.tokenExpiresAt <= Date.now()) {
+                const auth = await authorizeGoogleDrive(config.clientId)
+                config = await saveGoogleSyncConfig({
+                    accessToken: auth.accessToken,
+                    tokenExpiresAt: auth.tokenExpiresAt,
+                    accountEmail: auth.accountEmail,
+                })
+            }
+            try {
+                const result = await syncBackupWithGoogleDrive(
+                    config.accessToken,
+                    exportVocabulary,
+                    importVocabulary,
+                )
+                const summary = t('sync.syncDone', {
+                    merged: result.mergedWords,
+                    uploaded: result.uploadedWords,
+                })
+                const updated = await saveGoogleSyncConfig({
+                    lastSyncedAt: Date.now(),
+                    lastSyncSummary: summary,
+                })
+                if (result.mergedWords > 0) await notifyChanged({ event: 'vocabularyChanged' })
+                return {
+                    state: toGoogleSyncState(updated),
+                    mergedWords: result.mergedWords,
+                    uploadedWords: result.uploadedWords,
+                }
+            } catch (error) {
+                if (error instanceof GoogleAuthExpiredError) {
+                    await clearGoogleSyncAuth()
+                }
+                throw error
+            }
+        }
+        case 'wordbookProfiles':
+            return loadWordbookProfiles()
+        case 'saveWordbookProfile':
+            return saveWordbookProfile(message.input)
+        case 'deleteWordbookProfile':
+            return deleteWordbookProfile(z.string().trim().min(1).max(100).parse(message.input))
+        case 'testWordbookProfile': {
+            const profileId = z.string().trim().min(1).max(100).parse(message.input)
+            const profiles = await loadWordbookProfiles()
+            const profile = profiles.find((item) => item.id === profileId)
+            if (!profile) throw new Error(t('wordbook.profileNotFound'))
+            if (!(await browser.permissions.contains({ origins: [`${wordbookOrigin(profile.type)}/*`] }))) {
+                throw new Error(t('wordbook.permissionRequired'))
+            }
+            const categories = await listWordbookCategories(profile, 'en')
+            return { count: categories.length, categories }
+        }
+        case 'wordbookProfileSummaries':
+            return listWordbookProfileSummaries()
+        case 'wordbookCategories': {
+            const input = z
+                .object({
+                    profileId: z.string().trim().min(1).max(100),
+                    language: collectionLanguageSchema,
+                })
+                .parse(message.input)
+            const profiles = await loadWordbookProfiles()
+            const profile = profiles.find((item) => item.id === input.profileId)
+            if (!profile) throw new Error(t('wordbook.profileNotFound'))
+            if (!(await browser.permissions.contains({ origins: [`${wordbookOrigin(profile.type)}/*`] }))) {
+                throw new Error(t('library.wordbookPermissionRequired'))
+            }
+            return listWordbookCategories(profile, input.language)
+        }
+        case 'syncCollectionWordbook': {
+            const collectionId = collectionIdSchema.parse(message.input)
+            const [collections, profiles, allWords] = await Promise.all([
+                listCollections(),
+                loadWordbookProfiles(),
+                db.getAll('words'),
+            ])
+            const collection = collections.find((item) => item.id === collectionId)
+            if (!collection) throw new Error(t('library.collectionNotFound'))
+            const binding = collection.wordbook
+            if (!binding) throw new Error(t('wordbook.notConfigured'))
+            const profile = profiles.find((item) => item.id === binding.profileId)
+            if (!profile) throw new Error(t('wordbook.profileNotFound'))
+            if (!(await browser.permissions.contains({ origins: [`${wordbookOrigin(profile.type)}/*`] }))) {
+                throw new Error(t('library.wordbookPermissionRequired'))
+            }
+            const learningWords = allWords
+                .filter((word) => wordCollectionId(word) === collection.id && word.state === 'learning')
+                .map((word) => word.text)
+            const syncedCount = await appendWordsToWordbook(
+                profile,
+                binding.categoryId,
+                collection.language,
+                learningWords,
+            )
+            return { syncedCount, categoryName: binding.categoryName || binding.categoryId }
+        }
         case 'definitionMode':
             return loadDefinitionMode()
         case 'saveDefinitionMode':
@@ -379,12 +671,19 @@ async function execute(
     }
 }
 
-async function translate(requestKey: string, input: z.infer<typeof translationInputSchema>) {
+async function translate(
+    requestKey: string,
+    input: z.infer<typeof translationInputSchema>,
+    overrideSettings?: TranslationSettings,
+) {
     if (controllers.size >= 64 || controllers.has(requestKey)) throw new Error(t('translation.busy'))
     const controller = new AbortController()
     controllers.set(requestKey, controller)
     try {
-        const [settings, defaultSource] = await Promise.all([loadSettings(), loadSourceLanguage()])
+        const [settings, defaultSource] = await Promise.all([
+            overrideSettings ? Promise.resolve(overrideSettings) : loadSettings(),
+            loadSourceLanguage(),
+        ])
         if (!settings.baseUrl.trim() || !settings.model.trim()) throw new Error(t('translation.configure'))
         const endpoint = completionEndpoint(settings.baseUrl)
         if (!(await browser.permissions.contains({ origins: [`${endpoint.origin}/*`] }))) {

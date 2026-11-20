@@ -15,15 +15,18 @@ import { activityStreaks, localDay, summarizeActivity } from '../src/domain/acti
 import {
     activeCollectionId,
     sortCollections,
+    sortWords,
     sourceLanguageShort,
     targetLanguageFlag,
     targetLanguageShort,
     wordCollectionId,
 } from '../src/domain/collections'
 import {
+    deleteCollectionInputSchema,
     selectionTriggerSchema,
     sourceLanguageSchema,
     translationLanguagesSchema,
+    translationProvidersStateSchema,
 } from '../src/domain/models'
 
 describe('vocabulary statistics', () => {
@@ -230,5 +233,54 @@ describe('collections domain helpers', () => {
         expect(targetLanguageShort('Português')).toBe('Port')
         expect(targetLanguageFlag('简体中文')).toBe('cn')
         expect(targetLanguageFlag('English')).toBe('en')
+    })
+    it('sorts words by time, alphabet, and mastery level with ignored words last', () => {
+        const sample = [
+            { key: 'beta', text: 'beta', state: 'learning' as const, level: 3 as const, updatedAt: 20 },
+            { key: 'alpha', text: 'alpha', state: 'known' as const, updatedAt: 10 },
+            { key: 'gamma', text: 'gamma', state: 'learning' as const, level: 1 as const, updatedAt: 30 },
+            { key: 'delta', text: 'delta', state: 'ignored' as const, updatedAt: 40 },
+        ]
+        expect(sortWords(sample, 'updated-desc').map((w) => w.key)).toEqual([
+            'delta',
+            'gamma',
+            'beta',
+            'alpha',
+        ])
+        expect(sortWords(sample, 'updated-asc').map((w) => w.key)).toEqual([
+            'alpha',
+            'beta',
+            'gamma',
+            'delta',
+        ])
+        expect(sortWords(sample, 'alpha-asc').map((w) => w.key)).toEqual(['alpha', 'beta', 'delta', 'gamma'])
+        expect(sortWords(sample, 'alpha-desc').map((w) => w.key)).toEqual(['gamma', 'delta', 'beta', 'alpha'])
+        expect(sortWords(sample, 'level-asc').map((w) => w.key)).toEqual(['gamma', 'beta', 'alpha', 'delta'])
+        expect(sortWords(sample, 'level-desc').map((w) => w.key)).toEqual(['alpha', 'beta', 'gamma', 'delta'])
+    })
+    it('validates collection deletion and multi-provider translation schemas', () => {
+        expect(
+            deleteCollectionInputSchema.parse({ id: 'ja', mode: 'move', targetCollectionId: 'en' }),
+        ).toEqual({
+            id: 'ja',
+            mode: 'move',
+            targetCollectionId: 'en',
+        })
+        expect(() => deleteCollectionInputSchema.parse({ id: 'ja', mode: 'invalid' })).toThrow()
+        const providers = translationProvidersStateSchema.parse({
+            activeId: 'p1',
+            providers: [
+                {
+                    id: 'p1',
+                    name: 'DeepSeek',
+                    baseUrl: 'https://api.deepseek.com',
+                    apiKey: 'secret',
+                    model: 'deepseek-flash',
+                    timeoutMs: 30_000,
+                },
+            ],
+            targetLanguage: '简体中文',
+        })
+        expect(providers.providers).toHaveLength(1)
     })
 })

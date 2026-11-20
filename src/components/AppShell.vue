@@ -79,7 +79,9 @@ const secondaryLinks = [
         </aside>
         <main class="app-main">
             <header v-if="$slots.header" class="page-header-bar">
-                <slot name="header" />
+                <div class="page-header-inner">
+                    <slot name="header" />
+                </div>
             </header>
             <div class="page-content"><slot /></div>
         </main>

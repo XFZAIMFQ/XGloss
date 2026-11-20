@@ -140,12 +140,27 @@ try {
     assert.equal(await options.getByPlaceholder('填写服务支持的模型 ID').inputValue(), 'deepseek-flash')
     await options.getByPlaceholder('https://api.example.com/v1').fill(`${origin}/v1`)
     await options.getByPlaceholder('填写服务支持的模型 ID').fill('smoke-model')
-    await options.getByRole('button', { name: '测试语境翻译' }).click()
+    await options.locator('.modal').getByRole('button', { name: '测试语境翻译' }).click()
     await options.getByText('寄存器 / 登记', { exact: true }).waitFor()
     assert.equal(translationRequests, 1)
-    await options.getByRole('button', { name: '测试语境翻译' }).click()
+    await options.locator('.provider-card').getByRole('button', { name: '测试语境翻译' }).click()
     await options.getByText('寄存器 / 登记', { exact: true }).waitFor()
     assert.equal(translationRequests, 1, 'Identical translation should use the local cache')
+    await options.getByRole('button', { name: '添加翻译来源' }).click()
+    await options.getByLabel('来源名称').fill('Backup LLM')
+    await options.getByPlaceholder('https://api.example.com/v1').fill(`${origin}/v1`)
+    await options.getByPlaceholder('填写服务支持的模型 ID').fill('smoke-model')
+    await options.getByRole('button', { name: '保存并授权' }).click()
+    const deepSeekCard = options.locator('.provider-card').filter({ hasText: 'DeepSeek' })
+    const backupCard = options.locator('.provider-card').filter({ hasText: 'Backup LLM' })
+    await backupCard.getByText('当前启用', { exact: true }).waitFor()
+    await deepSeekCard.getByRole('button', { name: '设为当前' }).click()
+    await deepSeekCard.getByText('当前启用', { exact: true }).waitFor()
+    await backupCard.getByRole('button', { name: '删除来源' }).click()
+    await options.locator('.modal').getByRole('button', { name: '删除来源' }).click()
+    await backupCard.waitFor({ state: 'detached' })
+    const settingsNav = options.getByRole('navigation', { name: '设置分类导航' })
+    await settingsNav.getByRole('button', { name: '通用与词卡' }).click()
     await options.getByRole('combobox', { name: '默认释义' }).click()
     await options.getByRole('option', { name: '详细 (词性和原句)' }).click()
     await options.getByText('词卡显示偏好已保存', { exact: true }).waitFor()
@@ -468,6 +483,27 @@ try {
                         input: 'en',
                         requestId: crypto.randomUUID(),
                     })
+                    const attemptedProviders = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'translationProviders',
+                        requestId: crypto.randomUUID(),
+                    })
+                    const attemptedWordbooks = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'wordbookProfiles',
+                        requestId: crypto.randomUUID(),
+                    })
+                    const attemptedGoogleSync = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'googleSyncState',
+                        requestId: crypto.randomUUID(),
+                    })
+                    const attemptedDeleteWords = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'deleteWords',
+                        input: ['register'],
+                        requestId: crypto.randomUUID(),
+                    })
                     return {
                         settings: settings.ok,
                         siteAnalysis: attemptedChange.ok,
@@ -475,6 +511,10 @@ try {
                         setTranslationLanguages: attemptedLangs.ok,
                         activeCollection: attemptedActive.ok,
                         setActiveCollection: attemptedSetActive.ok,
+                        translationProviders: attemptedProviders.ok,
+                        wordbookProfiles: attemptedWordbooks.ok,
+                        googleSyncState: attemptedGoogleSync.ok,
+                        deleteWords: attemptedDeleteWords.ok,
                     }
                 },
             }),
@@ -487,6 +527,10 @@ try {
         setTranslationLanguages: false,
         activeCollection: false,
         setActiveCollection: false,
+        translationProviders: false,
+        wordbookProfiles: false,
+        googleSyncState: false,
+        deleteWords: false,
     })
     await article.evaluate(() => document.querySelector('main').firstElementChild.remove())
     await article.waitForFunction(
@@ -562,10 +606,50 @@ try {
     assert.ok(
         await library.locator('.library-toolbar').evaluate((toolbar) => {
             const controls = [...toolbar.querySelectorAll('button[role="combobox"], input')]
-            return controls[0]?.getAttribute('role') === 'combobox' && controls[1]?.tagName === 'INPUT'
+            return (
+                controls[0]?.getAttribute('role') === 'combobox' &&
+                controls[1]?.getAttribute('role') === 'combobox' &&
+                controls[2]?.tagName === 'INPUT'
+            )
         }),
-        'Category filter must be placed to the left of the search input',
+        'Category filter and sort dropdown must be placed to the left of the search input',
     )
+    await library.getByRole('button', { name: '添加单词' }).click()
+    await library.getByLabel('单词或短语').fill('alpha')
+    await library.getByRole('button', { name: '加入生词' }).click()
+    await library.getByRole('button', { name: '添加单词' }).click()
+    await library.getByLabel('单词或短语').fill('zebra')
+    await library.getByRole('button', { name: '加入生词' }).click()
+    await library.getByRole('combobox', { name: '排序方式' }).click()
+    await library.getByRole('option', { name: '名称 A-Z' }).click()
+    assert.deepEqual(await library.locator('.word-table tbody .collection-term strong').allTextContents(), [
+        'alpha',
+        'register',
+        'zebra',
+    ])
+    await library.getByRole('combobox', { name: '排序方式' }).click()
+    await library.getByRole('option', { name: '名称 Z-A' }).click()
+    assert.deepEqual(await library.locator('.word-table tbody .collection-term strong').allTextContents(), [
+        'zebra',
+        'register',
+        'alpha',
+    ])
+    assert.ok(
+        await library.locator('.word-table thead tr').evaluate((row) => {
+            const cells = [...row.children]
+            return cells.at(-1)?.classList.contains('checkbox-col') === true
+        }),
+        'Word table checkboxes must be placed in the right-most column',
+    )
+    await library.getByLabel('选择 alpha').check()
+    await library.getByLabel('选择 zebra').check()
+    await library.getByText('已选 2 个词条', { exact: true }).waitFor()
+    await library.getByRole('button', { name: '批量删除' }).click()
+    await library.locator('.modal').getByRole('button', { name: '确认删除' }).click()
+    await library.getByText('已删除 2 个词条', { exact: true }).waitFor()
+    assert.deepEqual(await library.locator('.word-table tbody .collection-term strong').allTextContents(), [
+        'register',
+    ])
     await library
         .locator('.collection-meaning')
         .filter({ hasText: /^\s*登记\s*$/ })
@@ -592,8 +676,49 @@ try {
     await library.screenshot({ path: resolve(directory, 'library.png'), fullPage: true })
     await library.getByRole('link', { name: '返回词库' }).click()
     await library.getByRole('button', { name: '打开词库 - 阅读收藏' }).waitFor()
+    await library.getByRole('button', { name: '添加词库' }).click()
+    await library.getByRole('button', { name: '德语' }).click()
+    await library.getByLabel('词库名称').fill('临时德语词库')
+    await library.getByRole('button', { name: '保存词库' }).click()
+    const tempDeCard = library.locator('.collection-card').filter({ hasText: '临时德语词库' })
+    await tempDeCard.getByRole('button', { name: '编辑词库' }).click()
+    await library.getByRole('button', { name: '删除词库' }).click()
+    await library.locator('.modal').getByRole('button', { name: '确认删除' }).click()
+    await tempDeCard.waitFor({ state: 'detached' })
     await library.screenshot({ path: resolve(directory, 'library-collections.png'), fullPage: true })
+    const settingsNavFinal = options.getByRole('navigation', { name: '设置分类导航' })
+    await settingsNavFinal.getByRole('button', { name: /外部生词本/ }).click()
+    await options.getByRole('heading', { name: '外部生词本账号' }).waitFor()
+    await settingsNavFinal.getByRole('button', { name: /Google Drive 云同步/ }).click()
+    await options.getByRole('heading', { name: 'Google Drive 云同步' }).waitFor()
+    await options.getByLabel('Google OAuth Client ID').fill('test-client.apps.googleusercontent.com')
+    await options.getByRole('button', { name: '保存 Client ID' }).click()
+    await options.getByText('Google OAuth Client ID 已保存', { exact: true }).waitFor()
+    await settingsNavFinal.getByRole('button', { name: /翻译来源/ }).click()
+    await options.setViewportSize({ width: 2560, height: 1440 })
+    const aligned4k = await options.evaluate(() => {
+        const headerTitle = document.querySelector('.page-header-inner h1')?.getBoundingClientRect()
+        const subnav = document.querySelector('.settings-subnav')?.getBoundingClientRect()
+        return headerTitle && subnav ? Math.abs(headerTitle.left - subnav.left) < 2 : false
+    })
+    assert.ok(aligned4k, 'Header title and Settings content must align vertically on 4K viewports')
+    await options.screenshot({ path: resolve(directory, 'settings-4k.png'), fullPage: true })
+    await options.setViewportSize({ width: 1440, height: 1000 })
     await options.screenshot({ path: resolve(directory, 'settings.png'), fullPage: true })
+    const librarySecretCheck = await library.evaluate(async () => {
+        const secrets = await chrome.runtime.sendMessage({
+            channel: 'xgloss',
+            operation: 'wordbookProfiles',
+            requestId: crypto.randomUUID(),
+        })
+        const summaries = await chrome.runtime.sendMessage({
+            channel: 'xgloss',
+            operation: 'wordbookProfileSummaries',
+            requestId: crypto.randomUUID(),
+        })
+        return { secrets: secrets.ok, summaries: summaries.ok }
+    })
+    assert.deepEqual(librarySecretCheck, { secrets: false, summaries: true })
     await library.getByRole('link', { name: '复习训练', exact: true }).click()
     await library.getByRole('heading', { name: '复习训练', exact: true }).waitFor()
     const libFilterBox = await library.getByRole('combobox', { name: '词库' }).boundingBox()
