@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Backup } from '../src/domain/models'
+import { readGoogleSyncConfig, writeGoogleSyncConfig, type StorageAreaLike } from '../src/data/settings'
 import {
     GoogleAuthExpiredError,
     parseGoogleAuthCallback,
@@ -39,10 +40,16 @@ const sampleLocalBackup: Extract<Backup, { version: 2 }> = {
 describe('Google Drive appDataFolder sync', () => {
     it('parses OAuth implicit callback and enforces CSRF state', () => {
         const parsed = parseGoogleAuthCallback(
-            'https://abc.chromiumapp.org/google#access_token=tok123&expires_in=3600&state=s1',
+            'https://abc.chromiumapp.org/google#access_token=tok123&expires_in=3600&state=s1&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.appdata%20openid',
             's1',
         )
         expect(parsed).toEqual({ accessToken: 'tok123', expiresIn: 3600 })
+        expect(() =>
+            parseGoogleAuthCallback(
+                'https://abc.chromiumapp.org/google#access_token=tok123&state=s1&scope=openid%20email',
+                's1',
+            ),
+        ).toThrow('应用配置数据权限')
         expect(() =>
             parseGoogleAuthCallback(
                 'https://abc.chromiumapp.org/google#access_token=tok123&state=wrong',
@@ -130,6 +137,66 @@ describe('Google Drive appDataFolder sync', () => {
                 fetcher,
             ),
         ).rejects.toBeInstanceOf(GoogleAuthExpiredError)
+    })
+
+    it('backs up only non-secret Google clientId via chrome.storage.sync with graceful fallback', async () => {
+        const createArea = (): { data: Record<string, unknown>; area: StorageAreaLike } => {
+            const data: Record<string, unknown> = {}
+            return {
+                data,
+                area: {
+                    async get(key) {
+                        return key in data ? { [key]: data[key] } : {}
+                    },
+                    async set(items) {
+                        Object.assign(data, items)
+                    },
+                    async remove(key) {
+                        delete data[key]
+                    },
+                },
+            }
+        }
+        const local = createArea()
+        const sync = createArea()
+        await writeGoogleSyncConfig(local.area, sync.area, {
+            clientId: 'abc.apps.googleusercontent.com',
+            accessToken: 'secret-token',
+            tokenExpiresAt: Date.now() + 60_000,
+            accountEmail: 'user@example.com',
+        })
+        expect(sync.data).toEqual({ googleSyncClientId: 'abc.apps.googleusercontent.com' })
+        expect(JSON.stringify(sync.data)).not.toContain('secret-token')
+
+        const freshLocal = createArea()
+        const restored = await readGoogleSyncConfig(freshLocal.area, sync.area)
+        expect(restored.clientId).toBe('abc.apps.googleusercontent.com')
+        expect(restored.accessToken).toBe('')
+
+        const legacyLocal = createArea()
+        const emptySync = createArea()
+        legacyLocal.data.googleSync = { clientId: 'legacy.apps.googleusercontent.com' }
+        await readGoogleSyncConfig(legacyLocal.area, emptySync.area)
+        expect(emptySync.data.googleSyncClientId).toBe('legacy.apps.googleusercontent.com')
+
+        await writeGoogleSyncConfig(local.area, sync.area, { clientId: '' })
+        expect('googleSyncClientId' in sync.data).toBe(false)
+
+        const brokenSync: StorageAreaLike = {
+            async get() {
+                throw new Error('sync disabled')
+            },
+            async set() {
+                throw new Error('sync disabled')
+            },
+            async remove() {
+                throw new Error('sync disabled')
+            },
+        }
+        const saved = await writeGoogleSyncConfig(local.area, brokenSync, {
+            clientId: 'offline.apps.googleusercontent.com',
+        })
+        expect(saved.clientId).toBe('offline.apps.googleusercontent.com')
     })
 })
 

@@ -5,8 +5,8 @@ import { backupSchema, type Backup } from '../domain/models'
 
 export const googleApiOrigin = 'https://www.googleapis.com'
 const backupFileName = 'xgloss-backup.json'
-const driveScope =
-    'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email'
+const driveAppDataScope = 'https://www.googleapis.com/auth/drive.appdata'
+const driveScope = `${driveAppDataScope} https://www.googleapis.com/auth/userinfo.email`
 const timeoutMs = 30_000
 
 const fileListSchema = z.object({
@@ -49,6 +49,10 @@ export function parseGoogleAuthCallback(
     if (params.get('state') !== expectedState) throw new Error(t('sync.authFailed'))
     const accessToken = params.get('access_token')?.trim()
     if (!accessToken) throw new Error(t('sync.authFailed'))
+    const grantedScope = params.get('scope')
+    if (grantedScope !== null && !grantedScope.split(/\s+/).includes(driveAppDataScope)) {
+        throw new Error(t('sync.missingDriveScope'))
+    }
     const rawExpires = Number(params.get('expires_in') ?? '3600')
     const expiresIn = Number.isFinite(rawExpires) && rawExpires > 0 ? rawExpires : 3600
     return { accessToken, expiresIn }
@@ -68,7 +72,7 @@ export async function authorizeGoogleDrive(
     authUrl.searchParams.set('response_type', 'token')
     authUrl.searchParams.set('scope', driveScope)
     authUrl.searchParams.set('state', state)
-    authUrl.searchParams.set('prompt', 'select_account')
+    authUrl.searchParams.set('prompt', 'select_account consent')
     let callbackUrl: string | undefined
     try {
         callbackUrl = await browser.identity.launchWebAuthFlow({
@@ -115,6 +119,12 @@ async function driveFetch(
         signal: AbortSignal.timeout(timeoutMs),
     })
     if (response.status === 401) throw new GoogleAuthExpiredError()
+    if (response.status === 403) {
+        const text = await response.text().catch(() => '')
+        if (text.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || text.includes('insufficientPermissions')) {
+            throw new Error(t('sync.missingDriveScope'))
+        }
+    }
     if (!response.ok) throw new Error(t('sync.uploadError', { status: response.status }))
     return response
 }

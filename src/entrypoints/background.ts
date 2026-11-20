@@ -4,7 +4,10 @@ import { defineBackground } from 'wxt/utils/define-background'
 import { handleMessage } from '../services/background-handler'
 
 export default defineBackground(() => {
-    const storageReady = browser.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
+    const storageReady = Promise.all([
+        browser.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
+        browser.storage.sync?.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => undefined),
+    ])
     browser.runtime.onMessage.addListener((message, sender, respond) => {
         if (message?.channel !== 'xgloss') return
         void storageReady

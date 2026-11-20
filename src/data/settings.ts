@@ -285,16 +285,70 @@ export async function saveTranslationLanguages(input: unknown): Promise<Translat
     return next
 }
 
+export interface StorageAreaLike {
+    get(keys: string): Promise<Record<string, unknown>>
+    set(items: Record<string, unknown>): Promise<void>
+    remove(keys: string): Promise<void>
+}
+
+const googleSyncClientIdKey = 'googleSyncClientId'
+
+export async function readGoogleSyncConfig(
+    localStorage: StorageAreaLike,
+    syncStorage?: StorageAreaLike,
+): Promise<GoogleSyncConfig> {
+    const localStored = await localStorage.get('googleSync')
+    const localConfig = googleSyncConfigSchema.parse(localStored.googleSync ?? {})
+    if (!syncStorage) return localConfig
+    try {
+        const syncStored = await syncStorage.get(googleSyncClientIdKey)
+        const parsedSyncId = z.string().trim().max(300).safeParse(syncStored[googleSyncClientIdKey])
+        const syncClientId = parsedSyncId.success ? parsedSyncId.data : ''
+        if (syncClientId && syncClientId !== localConfig.clientId) {
+            const adopted = googleSyncConfigSchema.parse({
+                ...localConfig,
+                clientId: syncClientId,
+                accessToken: '',
+                tokenExpiresAt: 0,
+                accountEmail: '',
+            })
+            await localStorage.set({ googleSync: adopted })
+            return adopted
+        }
+        if (!syncClientId && localConfig.clientId) {
+            await syncStorage.set({ [googleSyncClientIdKey]: localConfig.clientId })
+        }
+    } catch {
+        // Browser profile sync can be disabled or offline; fall back to local storage.
+    }
+    return localConfig
+}
+
+export async function writeGoogleSyncConfig(
+    localStorage: StorageAreaLike,
+    syncStorage: StorageAreaLike | undefined,
+    patch: Partial<GoogleSyncConfig>,
+): Promise<GoogleSyncConfig> {
+    const current = await readGoogleSyncConfig(localStorage, syncStorage)
+    const next = googleSyncConfigSchema.parse({ ...current, ...patch })
+    await localStorage.set({ googleSync: next })
+    if (patch.clientId !== undefined && syncStorage) {
+        try {
+            if (next.clientId) await syncStorage.set({ [googleSyncClientIdKey]: next.clientId })
+            else await syncStorage.remove(googleSyncClientIdKey)
+        } catch {
+            // Keep local save resilient even when chrome.storage.sync is unavailable.
+        }
+    }
+    return next
+}
+
 export async function loadGoogleSyncConfig(): Promise<GoogleSyncConfig> {
-    const stored = await browser.storage.local.get('googleSync')
-    return googleSyncConfigSchema.parse(stored.googleSync ?? {})
+    return readGoogleSyncConfig(browser.storage.local, browser.storage.sync)
 }
 
 export async function saveGoogleSyncConfig(patch: Partial<GoogleSyncConfig>): Promise<GoogleSyncConfig> {
-    const current = await loadGoogleSyncConfig()
-    const next = googleSyncConfigSchema.parse({ ...current, ...patch })
-    await browser.storage.local.set({ googleSync: next })
-    return next
+    return writeGoogleSyncConfig(browser.storage.local, browser.storage.sync, patch)
 }
 
 export async function clearGoogleSyncAuth(): Promise<GoogleSyncConfig> {

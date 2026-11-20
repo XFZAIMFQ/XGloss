@@ -367,7 +367,7 @@ export const zhCN = {
     'sync.authFailed': 'Google 授权失败, 请检查 OAuth Client ID 与重定向地址配置',
     'sync.clientId': 'Google OAuth Client ID',
     'sync.clientIdHelp':
-        '在 Google Cloud Console 创建 Web Application OAuth 客户端, 将下方回调地址加入已授权重定向 URI, 并启用 Google Drive API.',
+        '在 Google Cloud Console 创建 Web Application OAuth 客户端, 将下方回调地址加入已授权重定向 URI, 并启用 Google Drive API. Client ID 会自动通过 chrome.storage.sync 备份, 授权令牌仅保留在本机.',
     'sync.clientIdPlaceholder': '例如 xxxxx.apps.googleusercontent.com',
     'sync.clientIdRequired': '请先填写 Google OAuth Client ID',
     'sync.clientIdSaved': 'Google OAuth Client ID 已保存',
@@ -383,6 +383,7 @@ export const zhCN = {
     'sync.intro':
         '使用你自己的 Google Drive 隐藏应用空间 (appDataFolder) 免费备份与合并词库, 不占用根目录文件.',
     'sync.lastSynced': '上次同步: {time}',
+    'sync.missingDriveScope': '未勾选 Google Drive 应用配置数据权限, 请重新连接并在授权页勾选该权限',
     'sync.neverSynced': '尚未同步过',
     'sync.notConnected': '未连接 Google 账号',
     'sync.permissionRequired': '需要授权访问 googleapis.com 才能执行云同步',

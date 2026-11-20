@@ -2,7 +2,7 @@
 
 ## 2026-11-20 CI/Release, Multi-Profile Providers, Library Management, Google Drive Sync & External Wordbooks
 
-- Added GitHub Actions workflows (`.github/workflows/ci.yml` for push/PR checks + artifact upload and `.github/workflows/release.yml` for tag-triggered `.zip` GitHub Releases).
+- Added GitHub Actions workflow (`.github/workflows/release.yml`) triggered only on tag pushes (`*`) or manual `workflow_dispatch` to run checks, package `.output/*.zip`, upload artifacts, and publish GitHub Releases on tags.
 - Added collection deletion (`deleteCollection`) with explicit user choice to either migrate existing words to another chosen collection or permanently delete the collection along with its words, encounters, and activities (preserving at least one collection and falling back `activeCollectionId` cleanly).
 - Added word list sorting (`updated-desc`, `updated-asc`, `alpha-asc`, `alpha-desc`, `level-asc`, `level-desc`) right next to the state filter in Library, plus right-side row/page checkboxes and atomic batch deletion (`deleteWords`).
 - Upgraded Translation Settings (`options.html`) to multi-profile OpenAI-compatible provider cards (`translationProviders`) with one-click switching, per-provider testing, deletion, and automatic migration from legacy single-provider settings.
