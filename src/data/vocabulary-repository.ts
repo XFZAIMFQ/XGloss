@@ -235,6 +235,7 @@ export async function saveWord(
             wordKey: key,
             createdAt: previous?.createdAt ?? now,
             meaning: options?.meaning ?? previous?.meaning,
+            textFragment: source.textFragment ?? previous?.textFragment,
         })
     }
     await tx.done
@@ -397,8 +398,15 @@ export async function importVocabulary(input: unknown): Promise<number> {
     }
     for (const encounter of backup.encounters) {
         const store = tx.objectStore('encounters')
-        const existing = encounter.meaning === undefined ? await store.get(encounter.id) : undefined
-        await store.put({ ...encounter, meaning: encounter.meaning ?? existing?.meaning })
+        const existing =
+            encounter.meaning === undefined || encounter.textFragment === undefined
+                ? await store.get(encounter.id)
+                : undefined
+        await store.put({
+            ...encounter,
+            meaning: encounter.meaning ?? existing?.meaning,
+            textFragment: encounter.textFragment ?? existing?.textFragment,
+        })
     }
     const store = tx.objectStore('activities')
     for (const activity of activities) {

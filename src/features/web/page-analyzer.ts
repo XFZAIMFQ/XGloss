@@ -8,7 +8,7 @@ import {
     type Token,
 } from '../../domain/vocabulary'
 import type { Word } from '../../domain/models'
-import { contextAt } from '../reading/selection-context'
+import { contextWithFragmentAt, type SelectionSnippet } from '../reading/selection-context'
 
 interface TextBlock {
     node: Text
@@ -90,14 +90,18 @@ export class PageAnalyzer {
     }
 
     contextForWord(word: string): string {
+        return this.sourceSnippetForWord(word).context
+    }
+
+    sourceSnippetForWord(word: string): SelectionSnippet {
         for (const block of this.blocks.values()) {
             if (!block.counts.has(word) || !block.node.isConnected) continue
             const token = block.tokens.find(
                 ({ key, text, start, end }) => key === word && block.node.data.slice(start, end) === text,
             )
-            if (token) return contextAt(block.node, token.start, token.text)
+            if (token) return contextWithFragmentAt(block.node, token.start, token.text)
         }
-        return ''
+        return { context: '' }
     }
 
     destroy() {

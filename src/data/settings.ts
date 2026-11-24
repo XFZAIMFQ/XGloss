@@ -5,6 +5,7 @@ import {
     defaultTranslationSettings,
     definitionModeSchema,
     googleSyncConfigSchema,
+    readingPanelPositionSchema,
     selectionTriggerSchema,
     sourceLanguageSchema,
     translationLanguagesSchema,
@@ -14,6 +15,7 @@ import {
     wordbookProfileInputSchema,
     wordbookProfileSchema,
     type GoogleSyncConfig,
+    type ReadingPanelPosition,
     type SelectionTrigger,
     type SourceLanguage,
     type TranslationLanguages,
@@ -398,4 +400,30 @@ export async function deleteWordbookProfile(id: string): Promise<WordbookProfile
     const profiles = current.filter((item) => item.id !== id)
     await browser.storage.local.set({ wordbookProfiles: profiles })
     return profiles
+}
+
+const maxSavedPanelPositions = 200
+const readingPanelPositionsSchema = z.record(z.string(), readingPanelPositionSchema)
+
+export async function loadReadingPanelPosition(scope: string): Promise<ReadingPanelPosition | null> {
+    const stored = await browser.storage.local.get('readingPanelPositions')
+    const parsed = readingPanelPositionsSchema.safeParse(stored.readingPanelPositions)
+    if (!parsed.success) return null
+    return parsed.data[scope] ?? null
+}
+
+export async function saveReadingPanelPosition(
+    scope: string,
+    input: unknown,
+): Promise<ReadingPanelPosition> {
+    const position = readingPanelPositionSchema.parse(input)
+    const stored = await browser.storage.local.get('readingPanelPositions')
+    const parsed = readingPanelPositionsSchema.safeParse(stored.readingPanelPositions)
+    const existing = parsed.success ? { ...parsed.data } : {}
+    delete existing[scope]
+    const entries = Object.entries(existing)
+    while (entries.length >= maxSavedPanelPositions) entries.shift()
+    entries.push([scope, position])
+    await browser.storage.local.set({ readingPanelPositions: Object.fromEntries(entries) })
+    return position
 }

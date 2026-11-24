@@ -23,6 +23,7 @@ import {
     loadActiveCollectionId,
     loadDefinitionMode,
     loadGoogleSyncConfig,
+    loadReadingPanelPosition,
     loadRecall,
     loadSelectionTrigger,
     loadSettings,
@@ -36,6 +37,7 @@ import {
     saveActiveCollectionId,
     saveDefinitionMode,
     saveGoogleSyncConfig,
+    saveReadingPanelPosition,
     saveRecall,
     saveSelectionTrigger,
     saveSettings,
@@ -219,6 +221,11 @@ async function resolveWebSite(sender: Browser.runtime.MessageSender, tabId?: num
     return site
 }
 
+async function resolvePanelScope(sender: Browser.runtime.MessageSender): Promise<string> {
+    if (sender.url?.startsWith(browser.runtime.getURL('/'))) return 'extension'
+    return resolveWebSite(sender)
+}
+
 export async function handleMessage(raw: unknown, sender: Browser.runtime.MessageSender) {
     try {
         const message = envelopeSchema.parse(raw)
@@ -271,6 +278,10 @@ async function execute(
             await saveRecall(z.boolean().parse(message.input))
             await notifyChanged({ event: 'candidateRecallChanged' })
             return null
+        case 'readingPanelPosition':
+            return loadReadingPanelPosition(await resolvePanelScope(sender))
+        case 'saveReadingPanelPosition':
+            return saveReadingPanelPosition(await resolvePanelScope(sender), message.input)
         case 'selectionTrigger':
             return loadSelectionTrigger()
         case 'setSelectionTrigger':

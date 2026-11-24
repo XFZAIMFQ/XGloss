@@ -234,6 +234,20 @@ blockquote {
     z-index: 2147483646;
 }
 
+.floating.is-dragging {
+    user-select: none;
+}
+
+.floating.is-dragging .reading-trigger,
+.floating.is-dragging .reading-head {
+    cursor: grabbing;
+}
+
+.floating.is-dragging .reading-trigger,
+.floating.is-dragging .reading-panel {
+    box-shadow: 0 10px 28px #202a4033;
+}
+
 .reading-trigger {
     gap: 0;
     min-width: 42px;
@@ -244,6 +258,8 @@ blockquote {
     font-size: 13px;
     line-height: 1.4;
     font-variant-numeric: tabular-nums;
+    touch-action: none;
+    cursor: grab;
 }
 
 .reading-trigger strong {
@@ -308,8 +324,24 @@ blockquote {
 .reading-head {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
     min-height: 46px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.reading-drag-grip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-inline-start: -4px;
+    color: #9e9bb0;
+    flex: none;
+}
+
+.reading-head:hover .reading-drag-grip {
+    color: #646176;
 }
 
 .coverage-ring {

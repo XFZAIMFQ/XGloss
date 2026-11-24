@@ -41,6 +41,7 @@ const props = withDefaults(
 const emit = defineEmits<{ saved: []; close: [] }>()
 const translation = ref<TranslationResult>()
 const status = ref('')
+const feedback = ref('')
 const error = ref('')
 const translationError = ref('')
 const busy = ref(false)
@@ -60,6 +61,7 @@ const langPopoverOpen = ref(false)
 const langCapsuleWrap = ref<HTMLElement>()
 let preferredMode: Promise<DefinitionMode> | undefined
 let unsubscribeReading: (() => void) | undefined
+let feedbackTimer: ReturnType<typeof setTimeout> | undefined
 const effectiveSource = computed<SourceLanguage>(
     () => overrideLanguages.value?.sourceLanguage ?? defaultLanguages.value.sourceLanguage,
 )
@@ -113,6 +115,33 @@ watch(
         savedRating.value = undefined
     },
 )
+watch(
+    () => props.savedMeaning,
+    (next) => {
+        if (!props.saveSource) previousMeaning.value = next
+    },
+)
+
+function clearFeedback() {
+    clearTimeout(feedbackTimer)
+    feedbackTimer = undefined
+    feedback.value = ''
+}
+
+function showFeedback(message: string) {
+    clearTimeout(feedbackTimer)
+    feedback.value = message
+    feedbackTimer = setTimeout(() => {
+        feedback.value = ''
+        feedbackTimer = undefined
+    }, 2200)
+}
+
+function normalizeRating(rating: WordRating): WordRating {
+    return rating.state === 'learning'
+        ? { state: 'learning', level: rating.level ?? 1 }
+        : { state: rating.state }
+}
 
 function cancel() {
     translationRequest?.abort()
@@ -120,9 +149,20 @@ function cancel() {
     busy.value = false
 }
 watch(
-    () => ({ text: props.text, source: props.source }),
-    async ({ text, source }) => {
+    [
+        () => props.text,
+        () => props.source.title,
+        () => props.source.url,
+        () => props.source.context,
+        () => props.source.page,
+        () => props.source.documentId,
+        () => props.source.textFragment,
+        () => props.saveSource,
+    ],
+    async ([text]) => {
+        const source = props.source
         cancel()
+        clearFeedback()
         const current = ++generation
         translation.value = undefined
         status.value = ''
@@ -165,29 +205,43 @@ watch(
     { immediate: true },
 )
 
-async function save(rating: WordRating) {
+async function save(rating: WordRating, options?: { meaning?: string; statusText?: string }) {
     if (saving.value) return
     const current = generation
-    const meaning = chosenMeaning.value
+    const normalized = normalizeRating(rating)
+    const meaning = options?.meaning ?? chosenMeaning.value
     saving.value = true
     try {
         await request('saveWord', {
             text: props.text,
-            ...rating,
+            ...normalized,
             source: props.saveSource ? props.source : undefined,
             meaning,
         })
         emit('saved')
         if (current !== generation) return
-        savedRating.value = rating
+        savedRating.value = normalized
         previousMeaning.value = meaning
-        status.value = t('card.saved', { rating: ratingLabel(rating) })
+        const message = options?.statusText ?? t('card.saved', { rating: ratingLabel(normalized) })
+        status.value = message
+        if (options?.statusText) showFeedback(message)
         error.value = ''
     } catch (reason) {
         if (current === generation) error.value = errorMessage(reason)
     } finally {
         saving.value = false
     }
+}
+
+function chooseMeaning(meaning: string) {
+    selectedMeaning.value = meaning
+    const activeRating = savedRating.value ?? props.rating
+    if (!canSave.value || !activeRating || saving.value || loadingSavedMeaning.value) return
+    if (meaning === previousMeaning.value) return
+    void save(activeRating, {
+        meaning,
+        statusText: t('card.meaningUpdated'),
+    })
 }
 function toggleMode() {
     mode.value = mode.value === 'simple' ? 'detailed' : 'simple'
@@ -290,6 +344,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
     generation++
+    clearFeedback()
     cancel()
     unsubscribeReading?.()
     document.removeEventListener('pointerdown', onOutsideLangPointerDown, { capture: true })
@@ -352,7 +407,7 @@ onBeforeUnmount(() => {
                     :aria-pressed="meaning.text === chosenMeaning"
                     :aria-describedby="meaning.text === contextMatch ? contextMatchId : undefined"
                     :disabled="saving || loadingSavedMeaning"
-                    @click="selectedMeaning = meaning.text"
+                    @click="chooseMeaning(meaning.text)"
                 >
                     <span>{{ meaning.text }}</span>
                     <small v-if="mode === 'detailed' && meaning.partOfSpeech" class="muted">
@@ -376,6 +431,7 @@ onBeforeUnmount(() => {
             </blockquote>
             <p v-if="translationError" role="alert" class="error small">{{ translationError }}</p>
             <p v-if="error" role="alert" class="error small">{{ error }}</p>
+            <p v-else-if="feedback" class="success small">{{ feedback }}</p>
         </div>
         <footer class="card-footer">
             <WordRatingControls

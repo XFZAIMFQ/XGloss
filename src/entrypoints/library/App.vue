@@ -32,6 +32,7 @@ import {
     wordCollectionId,
 } from '../../domain/collections'
 import { learningLevelLabel, normalizeWord } from '../../domain/vocabulary'
+import { buildEncounterHighlightUrl } from '../../domain/text-fragment'
 import {
     defaultCollectionId,
     errorMessage,
@@ -45,6 +46,7 @@ import {
     type Word,
     type WordRating,
     type WordSort,
+    type WordSource,
     type WordState,
     type WordbookCategory,
     type WordbookMasteredAction,
@@ -231,6 +233,8 @@ function updateTab() {
 const selected = ref('')
 const selectedWord = computed(() => words.value.find((word) => word.key === selected.value))
 const encounters = ref<Encounter[]>([])
+const fallbackLibrarySource: WordSource = { title: t('common.localLibrary'), url: '', context: '' }
+const selectedSource = computed<WordSource>(() => encounters.value[0] ?? fallbackLibrarySource)
 const error = ref('')
 const modalError = ref('')
 const status = ref('')
@@ -238,6 +242,7 @@ const pageSize = 25
 const currentPage = ref(1)
 const ratingPending = ref(new Set<string>())
 const details = ref(new Map<string, Operations['wordDetails']['output'][number]>())
+const detailsRevision = ref(0)
 const detailLoading = ref('')
 let selectionGeneration = 0
 let refreshGeneration = 0
@@ -268,6 +273,7 @@ const filtered = computed(() => {
 const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)))
 const page = computed(() => Math.min(currentPage.value, pages.value))
 const rows = computed(() => filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+const rowKeysSignature = computed(() => rows.value.map((word) => word.key).join('\0'))
 const allPageSelected = computed(
     () => rows.value.length > 0 && rows.value.every((word) => selectedKeys.value.has(word.key)),
 )
@@ -283,18 +289,24 @@ watch([query, filter, currentCollectionId, inCollection], () => {
     if (selectedKeys.value.size > 0) selectedKeys.value = new Set()
 })
 
-watch([rows, inCollection], async ([items, open], _previous, onCleanup) => {
+watch(currentCollectionId, () => {
+    details.value = new Map()
+})
+
+watch([rowKeysSignature, inCollection, detailsRevision], async ([signature, open], _previous, onCleanup) => {
     let stale = false
     onCleanup(() => {
         stale = true
     })
-    if (!items.length || !open) return
+    if (!signature || !open) return
+    const keys = signature.split('\0')
     try {
-        const result = await request(
-            'wordDetails',
-            items.map((word) => word.key),
-        )
-        if (!stale) details.value = new Map(result.map((detail) => [detail.key, detail]))
+        const result = await request('wordDetails', keys)
+        if (!stale) {
+            const next = new Map(details.value)
+            for (const detail of result) next.set(detail.key, detail)
+            details.value = next
+        }
     } catch (reason) {
         if (!stale) error.value = errorMessage(reason)
     }
@@ -314,6 +326,7 @@ async function refresh() {
         words.value = wordList
         collections.value = collectionList
         wordbookProfiles.value = profileList
+        detailsRevision.value++
         if (selectedKeys.value.size > 0) {
             const existingKeys = new Set(wordList.map((word) => word.key))
             const next = new Set([...selectedKeys.value].filter((key) => existingKeys.has(key)))
@@ -787,12 +800,8 @@ async function restore(event: Event) {
     }
 }
 
-function safeSource(url: string) {
-    try {
-        return ['https:', 'http:'].includes(new URL(url).protocol) ? url : undefined
-    } catch {
-        return undefined
-    }
+function encounterUrl(encounter: Encounter, wordText: string) {
+    return buildEncounterHighlightUrl(encounter.url, wordText, encounter.context, encounter.textFragment)
 }
 
 onMounted(() => {
@@ -1563,7 +1572,7 @@ onBeforeUnmount(() => {
                     :rating="selectedWord"
                     :saved-meaning="selectedWord.meaning"
                     :save-source="false"
-                    :source="encounters[0] ?? { title: t('common.localLibrary'), url: '', context: '' }"
+                    :source="selectedSource"
                     @saved="refresh"
                     @close="selected = ''"
                 />
@@ -1571,12 +1580,15 @@ onBeforeUnmount(() => {
                     <h3>{{ t('library.encounters') }}</h3>
                     <div v-for="encounter in encounters" :key="encounter.id">
                         <a
-                            v-if="safeSource(encounter.url)"
-                            :href="safeSource(encounter.url)"
+                            v-if="encounterUrl(encounter, selectedWord.text)"
+                            class="encounter-link"
+                            :href="encounterUrl(encounter, selectedWord.text)"
                             target="_blank"
-                            rel="noreferrer"
+                            rel="noopener noreferrer"
+                            :title="t('library.locateEncounter')"
                         >
-                            {{ encounter.title }}
+                            <span>{{ encounter.title }}</span>
+                            <ArrowUpRight :size="13" />
                         </a>
                         <span v-else>{{ encounter.title }}</span>
                         <span v-if="encounter.page">
@@ -1608,6 +1620,20 @@ onBeforeUnmount(() => {
 .encounter-list {
     padding: 0 20px 18px;
     font-size: 13px;
+}
+.encounter-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--ink);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: #d4d2e0;
+    text-underline-offset: 3px;
+}
+.encounter-link:hover {
+    color: var(--lime);
+    text-decoration-color: var(--lime);
 }
 .empty-filter {
     padding: 16px;

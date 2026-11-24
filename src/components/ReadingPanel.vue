@@ -11,9 +11,10 @@ import {
     watch,
     watchEffect,
 } from 'vue'
-import { EyeOff, RefreshCw, Volume2, X } from '@lucide/vue'
+import { EyeOff, GripVertical, RefreshCw, Volume2, X } from '@lucide/vue'
 import { calculateCoverage, ratingLabel, type Frequency } from '../domain/vocabulary'
 import { errorMessage, type Word, type WordRating, type WordSource } from '../domain/models'
+import { useFloatingDrag } from '../features/reading/use-floating-drag'
 import { onReadingChanged, request, translateSelection } from '../platform/messages'
 import WordRatingControls from './WordRatingControls.vue'
 import SpotlightButton from './SpotlightButton.vue'
@@ -32,12 +33,17 @@ const props = withDefaults(
     }>(),
     { active: true },
 )
-const emit = defineEmits<{ select: [word: string, anchor: HTMLElement] }>()
+const emit = defineEmits<{ select: [word: string, anchor: HTMLElement]; dragStart: [] }>()
 const panelId = useId()
+const floating = ref<HTMLElement>()
 const expanded = ref(false)
 const trigger = ref<HTMLButtonElement>()
 const closeButton = ref<HTMLButtonElement>()
 const list = ref<HTMLElement>()
+const { dragging, floatingStyle, onDragPointerDown, consumeSuppressedClick, syncPosition } = useFloatingDrag(
+    floating,
+    { onDragStart: () => emit('dragStart') },
+)
 const snapshot = shallowRef<Frequency[]>()
 const meanings = ref(new Map<string, string>())
 const recall = ref<boolean>()
@@ -224,8 +230,10 @@ function activateCandidate(word: string, anchor: HTMLElement) {
 }
 
 async function expand(event: MouseEvent) {
+    if (consumeSuppressedClick()) return
     expanded.value = true
     await nextTick()
+    syncPosition()
     if (list.value) list.value.scrollTop = scrollOffset
     if (!event.detail) closeButton.value?.focus()
 }
@@ -234,6 +242,7 @@ async function collapse() {
     scrollOffset = list.value?.scrollTop ?? 0
     expanded.value = false
     await nextTick()
+    syncPosition()
     trigger.value?.focus({ preventScroll: true })
 }
 
@@ -306,35 +315,45 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <button
-        v-if="!expanded"
-        ref="trigger"
-        type="button"
-        class="reading-trigger"
-        :aria-label="t('reading.expand', { percent, difficulty, unknown: newWords })"
-        aria-expanded="false"
-        @click="expand"
-    >
-        <strong>{{ percent }}</strong>
-        <span class="reading-trigger-summary" aria-hidden="true">
-            <span>- {{ difficulty }} - {{ newWords }}</span>
-        </span>
-    </button>
-    <section
-        v-else
-        :id="panelId"
-        class="reading-panel"
-        :aria-labelledby="`${panelId}-title`"
-        @keydown.esc.stop="collapse"
-    >
-        <header class="reading-head">
-            <div
-                class="coverage-ring"
-                :style="{ '--coverage': coverage.percent ?? 0 }"
-                :aria-label="t('reading.coverage')"
+    <div ref="floating" class="floating" :class="{ 'is-dragging': dragging }" :style="floatingStyle">
+        <button
+            v-if="!expanded"
+            ref="trigger"
+            type="button"
+            class="reading-trigger"
+            :aria-label="t('reading.expand', { percent, difficulty, unknown: newWords })"
+            :title="t('reading.dragHandle')"
+            aria-expanded="false"
+            @pointerdown="onDragPointerDown($event, 'trigger')"
+            @click="expand"
+        >
+            <strong>{{ percent }}</strong>
+            <span class="reading-trigger-summary" aria-hidden="true">
+                <span>- {{ difficulty }} - {{ newWords }}</span>
+            </span>
+        </button>
+        <section
+            v-else
+            :id="panelId"
+            class="reading-panel"
+            :aria-labelledby="`${panelId}-title`"
+            @keydown.esc.stop="collapse"
+        >
+            <header
+                class="reading-head"
+                :title="t('reading.dragHandle')"
+                @pointerdown="onDragPointerDown($event, 'header')"
             >
-                <strong>{{ percent }}</strong>
-            </div>
+                <span class="reading-drag-grip" aria-hidden="true">
+                    <GripVertical :size="14" />
+                </span>
+                <div
+                    class="coverage-ring"
+                    :style="{ '--coverage': coverage.percent ?? 0 }"
+                    :aria-label="t('reading.coverage')"
+                >
+                    <strong>{{ percent }}</strong>
+                </div>
             <div class="reading-intro">
                 <h2 :id="`${panelId}-title`">{{ difficulty }}</h2>
                 <p v-if="status" role="status">{{ status }}</p>
@@ -457,5 +476,6 @@ onBeforeUnmount(() => {
             </p>
         </div>
         <span class="reading-announcement" role="status">{{ announcement }}</span>
-    </section>
+        </section>
+    </div>
 </template>

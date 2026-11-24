@@ -366,6 +366,10 @@ function closeWordCard() {
     anchor.value = undefined
 }
 
+function onPanelDragStart() {
+    if (anchor.value instanceof HTMLElement) closeWordCard()
+}
+
 onMounted(() => {
     if (container.value && pages.value) {
         session = new PdfSession(container.value, pages.value, pageChanged)
@@ -553,20 +557,21 @@ onBeforeUnmount(() => {
                 </div>
             </div>
         </div>
-        <div v-if="ready" v-show="panelVisible" class="floating">
-            <ReadingPanel
-                :source-id="documentId"
-                :active="panelVisible"
-                :source-for-word="sourceForWord"
-                :words="words"
-                :counts="counts"
-                :reload-words="reloadWords"
-                :status="status"
-                :highlighted="highlighting"
-                :set-spotlight="setSpotlight"
-                @select="select"
-            />
-        </div>
+        <ReadingPanel
+            v-if="ready"
+            v-show="panelVisible"
+            :source-id="documentId"
+            :active="panelVisible"
+            :source-for-word="sourceForWord"
+            :words="words"
+            :counts="counts"
+            :reload-words="reloadWords"
+            :status="status"
+            :highlighted="highlighting"
+            :set-spotlight="setSpotlight"
+            @select="select"
+            @drag-start="onPanelDragStart"
+        />
         <SelectionTriggerIcon
             v-if="pendingSelection"
             :anchor="pendingSelection.anchor"

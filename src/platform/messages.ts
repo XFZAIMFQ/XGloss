@@ -10,6 +10,7 @@ import type {
     GoogleSyncState,
     LearningActivity,
     PdfBookmark,
+    ReadingPanelPosition,
     ReadingProgress,
     SelectionTrigger,
     TranslationInput,
@@ -121,6 +122,8 @@ export interface Operations {
     setSpotlight: { input: boolean; output: null }
     recallCandidateMeanings: { input: undefined; output: boolean }
     setRecallCandidateMeanings: { input: boolean; output: null }
+    readingPanelPosition: { input: undefined; output: ReadingPanelPosition | null }
+    saveReadingPanelPosition: { input: ReadingPanelPosition; output: ReadingPanelPosition }
     selectionTrigger: { input: undefined; output: SelectionTrigger }
     setSelectionTrigger: { input: SelectionTrigger; output: null }
     translationLanguages: { input: undefined; output: TranslationLanguages }

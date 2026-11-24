@@ -5,21 +5,27 @@ import FloatingWordCard from '../../components/FloatingWordCard.vue'
 import ReadingPanel from '../../components/ReadingPanel.vue'
 import SelectionTriggerIcon from '../../components/SelectionTriggerIcon.vue'
 import { normalizeWord } from '../../domain/vocabulary'
+import { stripTextFragment } from '../../domain/text-fragment'
 import { errorMessage, type SelectionTrigger, type Word, type WordSource } from '../../domain/models'
 import { onReadingChanged, onVocabularyChanged, request } from '../../platform/messages'
 import { PageAnalyzer } from './page-analyzer'
 import { selectionAnchor } from '../reading/selection-anchor'
-import { selectionContext } from '../reading/selection-context'
+import { selectionContextWithFragment } from '../reading/selection-context'
 import { useSpotlight } from '../reading/use-spotlight'
 
 const words = shallowRef<Word[]>()
 const counts = shallowRef(new Map<string, number>())
 const status = ref(t('web.preparing'))
 const selected = ref('')
-const source = ref<WordSource>({ title: document.title, url: location.href, context: '' })
+const source = ref<WordSource>({ title: document.title, url: stripTextFragment(location.href), context: '' })
 const anchor = shallowRef<HTMLElement | Range>()
 const selectionTrigger = ref<SelectionTrigger>('auto')
-const pendingSelection = shallowRef<{ text: string; anchor: Range; context: string }>()
+const pendingSelection = shallowRef<{
+    text: string
+    anchor: Range
+    context: string
+    textFragment?: string
+}>()
 const sourceId = ref(location.pathname + location.search)
 const rating = computed(() => words.value?.find((word) => word.key === normalizeWord(selected.value)))
 let analyzer: PageAnalyzer
@@ -45,10 +51,12 @@ async function refresh() {
     }
 }
 function sourceForWord(word: string): WordSource {
+    const snippet = analyzer?.sourceSnippetForWord(word)
     return {
         title: document.title.slice(0, 1000),
-        url: location.href.slice(0, 8000),
-        context: analyzer?.contextForWord(word) ?? '',
+        url: stripTextFragment(location.href).slice(0, 8000),
+        context: (snippet?.context ?? '').slice(0, 3000),
+        textFragment: snippet?.textFragment,
     }
 }
 async function loadSelectionTrigger() {
@@ -60,20 +68,23 @@ async function loadSelectionTrigger() {
         selectionTrigger.value = 'auto'
     }
 }
-function select(text: string, position: HTMLElement | Range, context = '') {
+function select(text: string, position: HTMLElement | Range, context = '', textFragment?: string) {
     pendingSelection.value = undefined
     selected.value = text
     anchor.value = position
+    const fallback =
+        !context || !textFragment ? analyzer?.sourceSnippetForWord(normalizeWord(text)) : undefined
     source.value = {
         title: document.title.slice(0, 1000),
-        url: location.href.slice(0, 8000),
-        context: (context || analyzer?.contextForWord(text) || '').slice(0, 3000),
+        url: stripTextFragment(location.href).slice(0, 8000),
+        context: (context || fallback?.context || '').slice(0, 3000),
+        textFragment: textFragment ?? fallback?.textFragment,
     }
 }
 function openPendingSelection() {
     const pending = pendingSelection.value
     if (!pending) return
-    select(pending.text, pending.anchor, pending.context)
+    select(pending.text, pending.anchor, pending.context, pending.textFragment)
 }
 function selection(event: MouseEvent | KeyboardEvent) {
     if (
@@ -88,13 +99,18 @@ function selection(event: MouseEvent | KeyboardEvent) {
     const parent = range.startContainer.parentElement
     if (parent?.closest('input,textarea,[contenteditable="true"]')) return
     const pos = selectionAnchor(selection)
-    const context = selectionContext(range, text)
+    const snippet = selectionContextWithFragment(range, text)
     if (selectionTrigger.value === 'icon') {
         closeWordCard()
-        pendingSelection.value = { text, anchor: pos, context }
+        pendingSelection.value = {
+            text,
+            anchor: pos,
+            context: snippet.context,
+            textFragment: snippet.textFragment,
+        }
         return
     }
-    select(text, pos, context)
+    select(text, pos, snippet.context, snippet.textFragment)
 }
 function keyboard(event: KeyboardEvent) {
     if (event.key === 'Shift') selection(event)
@@ -103,6 +119,9 @@ function closeWordCard() {
     pendingSelection.value = undefined
     selected.value = ''
     anchor.value = undefined
+}
+function onPanelDragStart() {
+    if (anchor.value instanceof HTMLElement) closeWordCard()
 }
 onMounted(() => {
     const root = document.querySelector<HTMLElement>('main, article, [role="main"]') ?? document.body
@@ -137,19 +156,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="floating">
-        <ReadingPanel
-            :source-id="sourceId"
-            :source-for-word="sourceForWord"
-            :words="words"
-            :counts="counts"
-            :reload-words="reloadWords"
-            :status="status"
-            :highlighted="highlighting"
-            :set-spotlight="setSpotlight"
-            @select="select"
-        />
-    </div>
+    <ReadingPanel
+        :source-id="sourceId"
+        :source-for-word="sourceForWord"
+        :words="words"
+        :counts="counts"
+        :reload-words="reloadWords"
+        :status="status"
+        :highlighted="highlighting"
+        :set-spotlight="setSpotlight"
+        @select="select"
+        @drag-start="onPanelDragStart"
+    />
     <SelectionTriggerIcon
         v-if="pendingSelection"
         :anchor="pendingSelection.anchor"

@@ -114,6 +114,7 @@ export const sourceSchema = z.object({
     context: z.string().max(3000),
     page: z.number().int().positive().optional(),
     documentId: z.string().max(500).optional(),
+    textFragment: z.string().max(1000).optional(),
 })
 export type WordSource = z.infer<typeof sourceSchema>
 export const encounterSchema = sourceSchema.extend({
@@ -215,6 +216,13 @@ export const translationResultSchema = z.discriminatedUnion('kind', [
 export type TranslationResult = z.infer<typeof translationResultSchema>
 export const definitionModeSchema = z.enum(['simple', 'detailed'])
 export type DefinitionMode = z.infer<typeof definitionModeSchema>
+export const readingPanelPositionSchema = z.object({
+    anchorX: z.enum(['left', 'right']),
+    offsetX: z.number().finite().min(0).max(10_000),
+    anchorY: z.enum(['top', 'bottom']),
+    offsetY: z.number().finite().min(0).max(10_000),
+})
+export type ReadingPanelPosition = z.infer<typeof readingPanelPositionSchema>
 export interface ReadingProgress {
     id: string
     page: number

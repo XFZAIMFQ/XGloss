@@ -239,4 +239,25 @@ describe('persistent vocabulary', () => {
         expect((await db.getAll('encounters')).map((e) => e.wordKey)).toEqual(['gamma'])
         expect((await db.getAll('activities')).every((a) => a.wordKey === 'gamma')).toBe(true)
     })
+    it('preserves textFragment across re-saves and updates word meaning without extra rating activity', async () => {
+        const source = {
+            title: 'Hardware Guide',
+            url: 'https://example.com/hw',
+            context: 'Write the value to the hardware register.',
+            textFragment: ':~:text=the%20hardware-,register',
+        }
+        await saveWord('register', 'learning', source, { level: 1, meaning: '登记' })
+        await saveWord('register', 'learning', undefined, { level: 1, meaning: '寄存器' })
+        const backup = await exportVocabulary()
+        expect(backup.words[0]?.meaning).toBe('寄存器')
+        expect(backup.activities).toHaveLength(1)
+        expect(backup.encounters[0]?.textFragment).toBe(':~:text=the%20hardware-,register')
+        await importVocabulary({
+            ...backup,
+            encounters: backup.encounters.map((record) => ({ ...record, textFragment: undefined })),
+        })
+        expect((await exportVocabulary()).encounters[0]?.textFragment).toBe(
+            ':~:text=the%20hardware-,register',
+        )
+    })
 })

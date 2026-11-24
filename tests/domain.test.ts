@@ -23,11 +23,23 @@ import {
 } from '../src/domain/collections'
 import {
     deleteCollectionInputSchema,
+    readingPanelPositionSchema,
     selectionTriggerSchema,
     sourceLanguageSchema,
     translationLanguagesSchema,
     translationProvidersStateSchema,
 } from '../src/domain/models'
+import {
+    buildEncounterHighlightUrl,
+    buildTextFragmentDirective,
+    buildTextFragmentFromContext,
+    stripTextFragment,
+} from '../src/domain/text-fragment'
+import {
+    anchorPositionToCoords,
+    clampFloatingCoords,
+    coordsToAnchorPosition,
+} from '../src/domain/panel-position'
 
 describe('vocabulary statistics', () => {
     it('normalizes casing and apostrophes while excluding identifiers', () => {
@@ -282,5 +294,76 @@ describe('collections domain helpers', () => {
             targetLanguage: '简体中文',
         })
         expect(providers.providers).toHaveLength(1)
+    })
+})
+
+describe('text fragment encounter links', () => {
+    it('strips existing text fragment directives while preserving regular hashes', () => {
+        expect(stripTextFragment('https://example.com/post#:~:text=register')).toBe(
+            'https://example.com/post',
+        )
+        expect(stripTextFragment('https://example.com/post#intro:~:text=hardware-,register')).toBe(
+            'https://example.com/post#intro',
+        )
+        expect(stripTextFragment('https://example.com/post#intro')).toBe('https://example.com/post#intro')
+    })
+
+    it('builds disambiguated directives with percent-encoded hyphens and context affixes', () => {
+        const text = 'Read the low-level register first. Then register a new user-id.'
+        const firstOffset = text.indexOf('register')
+        const secondOffset = text.lastIndexOf('register')
+        const first = buildTextFragmentFromContext(text, 'register', firstOffset)
+        const second = buildTextFragmentFromContext(text, 'register', secondOffset)
+        expect(first).toBe(':~:text=the%20low%2Dlevel-,register,-first.%20Then%20register')
+        expect(second).toBe(':~:text=register%20first.%20Then-,register,-a%20new%20user')
+        expect(first).not.toBe(second)
+        expect(buildTextFragmentDirective({ text: 'state-of-the-art' })).toBe(
+            ':~:text=state%2Dof%2Dthe%2Dart',
+        )
+    })
+
+    it('creates highlight URLs for stored and legacy encounters while rejecting unsafe protocols', () => {
+        expect(
+            buildEncounterHighlightUrl(
+                'https://example.com/docs#section',
+                'register',
+                'Write to the hardware register now.',
+                ':~:text=the%20hardware-,register,-now',
+            ),
+        ).toBe('https://example.com/docs#section:~:text=the%20hardware-,register,-now')
+        expect(
+            buildEncounterHighlightUrl(
+                'https://example.com/docs',
+                'register',
+                'Write to the hardware register now.',
+            ),
+        ).toBe('https://example.com/docs#:~:text=to%20the%20hardware-,register,-now')
+        expect(buildEncounterHighlightUrl('javascript:alert(1)', 'register', '')).toBeUndefined()
+    })
+})
+
+describe('floating reading panel positioning', () => {
+    it('anchors to nearest viewport edges and keeps expanded panel clamped inside viewport', () => {
+        const saved = coordsToAnchorPosition(
+            1210,
+            24,
+            { width: 54, height: 30 },
+            { width: 1280, height: 800 },
+        )
+        expect(readingPanelPositionSchema.parse(saved)).toEqual({
+            anchorX: 'right',
+            offsetX: 16,
+            anchorY: 'top',
+            offsetY: 24,
+        })
+        const expanded = anchorPositionToCoords(
+            saved,
+            { width: 334, height: 480 },
+            { width: 1280, height: 800 },
+        )
+        expect(expanded).toEqual({ left: 930, top: 24 })
+        expect(
+            clampFloatingCoords(900, 700, { width: 334, height: 480 }, { width: 600, height: 520 }, 12),
+        ).toEqual({ left: 254, top: 28 })
     })
 })
