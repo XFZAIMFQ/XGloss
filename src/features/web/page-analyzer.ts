@@ -7,7 +7,7 @@ import {
     type HighlightKind,
     type Token,
 } from '../../domain/vocabulary'
-import type { Word } from '../../domain/models'
+import type { WebAnalysisScope, Word } from '../../domain/models'
 import { contextWithFragmentAt, type SelectionSnippet } from '../reading/selection-context'
 
 interface TextBlock {
@@ -21,11 +21,20 @@ export interface AnalysisSnapshot {
     counts: Map<string, number>
     status: string
 }
-const excluded =
-    'script,style,noscript,textarea,input,select,pre,code,nav,footer,header,[contenteditable]:not([contenteditable="false"]),[aria-hidden="true"],#xgloss-root'
+export interface PageAnalyzerOptions {
+    includeChrome?: boolean
+}
+const baseExcluded =
+    'script,style,noscript,textarea,input,select,pre,code,[contenteditable]:not([contenteditable="false"]),[aria-hidden="true"],#xgloss-root'
+const mainOnlyExcluded = `${baseExcluded},nav,footer,header`
 const maxCharacters = 1_000_000
 const maxNodes = 10_000
 const maxRanges = 5_000
+
+export function resolveWebAnalysisRoot(scope: WebAnalysisScope, doc: Document = document): HTMLElement {
+    if (scope === 'full') return doc.body
+    return doc.querySelector<HTMLElement>('main, article, [role="main"]') ?? doc.body
+}
 
 export class PageAnalyzer {
     private blocks = new Map<Text, TextBlock>()
@@ -46,11 +55,14 @@ export class PageAnalyzer {
     private mutationObserver: MutationObserver
     private intersectionObserver: IntersectionObserver
     private highlights = new Map<HighlightKind, Highlight>()
+    private excludedSelector: string
 
     constructor(
         private root: HTMLElement,
         private changed: (snapshot: AnalysisSnapshot) => void,
+        options?: PageAnalyzerOptions,
     ) {
+        this.excludedSelector = options?.includeChrome ? baseExcluded : mainOnlyExcluded
         this.intersectionObserver = new IntersectionObserver(
             (entries) => {
                 for (const entry of entries) {
@@ -123,7 +135,7 @@ export class PageAnalyzer {
 
     private enqueue(node: Node) {
         if (node instanceof Text) this.dirty.add(node)
-        else if (node instanceof Element && !node.closest(excluded)) {
+        else if (node instanceof Element && !node.closest(this.excludedSelector)) {
             // A mutation burst is coalesced into one resumable root traversal.
             if (this.walkers.length >= 100)
                 this.walkers = [document.createTreeWalker(this.root, NodeFilter.SHOW_TEXT)]
@@ -184,7 +196,13 @@ export class PageAnalyzer {
         const parent = node.parentElement
         const old = this.blocks.get(node)
         if (old) this.removeBlock(old)
-        if (!parent || !node.isConnected || parent.closest(excluded) || !node.textContent?.trim()) return
+        if (
+            !parent ||
+            !node.isConnected ||
+            parent.closest(this.excludedSelector) ||
+            !node.textContent?.trim()
+        )
+            return
         if (!old && (this.characters >= maxCharacters || this.blocks.size >= maxNodes)) {
             this.limited = true
             return
@@ -209,6 +227,9 @@ export class PageAnalyzer {
         this.merge(block.counts, -1)
         this.blocks.delete(block.node)
         this.characters -= block.characters
+        if (this.limited && this.characters < maxCharacters && this.blocks.size < maxNodes) {
+            this.limited = false
+        }
         const siblings = this.blocksByParent.get(block.parent)
         siblings?.delete(block)
         if (!siblings?.size) {

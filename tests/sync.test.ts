@@ -7,9 +7,13 @@ import {
     syncBackupWithGoogleDrive,
 } from '../src/services/google-drive-sync'
 import {
+    WordbookAutoSyncQueue,
+    WordbookRateLimitError,
+    WordbookRateLimiter,
     appendWordsToWordbook,
     listWordbookCategories,
     removeWordsFromWordbook,
+    type RateLimitStorageLike,
 } from '../src/services/wordbook-sync'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -290,5 +294,121 @@ describe('External wordbook adapters', () => {
         const removed = await removeWordsFromWordbook(profile, 'np-1', 'en', ['BETA'], fetcher)
         expect(removed).toBe(1)
         expect(content).toBe('alpha\ngamma\ndelta')
+    })
+
+    it('enforces dual sliding-window rate limits, persists across restarts, and trips cooldown on HTTP 429', async () => {
+        let nowMs = 1_000_000
+        const sleeps: number[] = []
+        const store: Record<string, unknown> = {}
+        const storage: RateLimitStorageLike = {
+            async get(key) {
+                return key in store ? { [key]: store[key] } : {}
+            },
+            async set(items) {
+                Object.assign(store, items)
+            },
+        }
+        const limiter = new WordbookRateLimiter({
+            policies: {
+                eudic: {
+                    shortLimit: 2,
+                    shortWindowMs: 60_000,
+                    longLimit: 3,
+                    longWindowMs: 30 * 60_000,
+                    minIntervalMs: 350,
+                    cooldown429Ms: 60 * 60_000,
+                    maxWaitMs: 65_000,
+                },
+            },
+            now: () => nowMs,
+            sleep: async (ms) => {
+                sleeps.push(ms)
+                nowMs += ms
+            },
+            storage,
+        })
+
+        // 1st request immediate; 2nd paced by minIntervalMs; 3rd waits for 60s short window rollover.
+        await limiter.acquire('p-eudic', 'eudic')
+        await limiter.acquire('p-eudic', 'eudic')
+        await limiter.acquire('p-eudic', 'eudic')
+        expect(sleeps[0]).toBe(350)
+        expect(sleeps[1]).toBeGreaterThanOrEqual(59_000)
+
+        // Simulate Service Worker restart with a fresh limiter sharing the same storage:
+        // 4th request hits the 30-minute long window (3/3) and fails fast instead of risking a 24h ban.
+        const restarted = new WordbookRateLimiter({
+            policies: {
+                eudic: {
+                    shortLimit: 2,
+                    shortWindowMs: 60_000,
+                    longLimit: 3,
+                    longWindowMs: 30 * 60_000,
+                    minIntervalMs: 350,
+                    cooldown429Ms: 60 * 60_000,
+                    maxWaitMs: 65_000,
+                },
+            },
+            now: () => nowMs,
+            sleep: async (ms) => {
+                nowMs += ms
+            },
+            storage,
+        })
+        await expect(restarted.acquire('p-eudic', 'eudic')).rejects.toBeInstanceOf(WordbookRateLimitError)
+
+        // Verify HTTP 429 triggers persistent cooldown on a separate profile.
+        const profile = { id: 'p-429', type: 'eudic' as const, token: 'NIS tok' }
+        let hits = 0
+        const fetcher429: typeof fetch = async () => {
+            hits++
+            return new Response('', { status: 429 })
+        }
+        await expect(
+            appendWordsToWordbook(profile, '0', 'en', ['alpha'], fetcher429, restarted),
+        ).rejects.toBeInstanceOf(WordbookRateLimitError)
+        await expect(
+            appendWordsToWordbook(profile, '0', 'en', ['beta'], fetcher429, restarted),
+        ).rejects.toBeInstanceOf(WordbookRateLimitError)
+        expect(hits).toBe(1)
+    })
+
+    it('batches Eudic chunks by 100 and coalesces rapid auto-sync markings into one request', async () => {
+        const postedBatches: string[][] = []
+        let nowMs = 5_000
+        const limiter = new WordbookRateLimiter({
+            now: () => nowMs,
+            sleep: async (ms) => {
+                nowMs += ms
+            },
+            storage: null,
+        })
+        const fetcher: typeof fetch = async (_input, init) => {
+            const body = JSON.parse(String(init?.body)) as { words: string[] }
+            postedBatches.push(body.words)
+            return new Response(null, { status: 204 })
+        }
+        const profile = {
+            id: 'p-batch',
+            name: 'Eudic',
+            type: 'eudic' as const,
+            token: 'NIS tok',
+            createdAt: 1,
+            updatedAt: 1,
+        }
+        const bigList = Array.from({ length: 150 }, (_, index) => `word${index}`)
+        const count = await appendWordsToWordbook(profile, '0', 'en', bigList, fetcher, limiter)
+        expect(count).toBe(150)
+        expect(postedBatches.map((batch) => batch.length)).toEqual([100, 50])
+
+        postedBatches.length = 0
+        const queue = new WordbookAutoSyncQueue({ debounceMs: 50, fetcher, rateLimiter: limiter })
+        queue.enqueue({ profile, categoryId: '0', language: 'en', word: 'alpha', action: 'add' })
+        queue.enqueue({ profile, categoryId: '0', language: 'en', word: 'beta', action: 'add' })
+        // Adding then immediately removing the same word within debounce cancels out cleanly.
+        queue.enqueue({ profile, categoryId: '0', language: 'en', word: 'gamma', action: 'add' })
+        queue.enqueue({ profile, categoryId: '0', language: 'en', word: 'gamma', action: 'remove' })
+        await queue.flushAll()
+        expect(postedBatches).toEqual([['alpha', 'beta']])
     })
 })

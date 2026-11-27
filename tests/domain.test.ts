@@ -28,6 +28,7 @@ import {
     sourceLanguageSchema,
     translationLanguagesSchema,
     translationProvidersStateSchema,
+    webAnalysisScopeSchema,
 } from '../src/domain/models'
 import {
     buildEncounterHighlightUrl,
@@ -231,6 +232,9 @@ describe('collections domain helpers', () => {
         expect(selectionTriggerSchema.parse('icon')).toBe('icon')
         expect(selectionTriggerSchema.parse('off')).toBe('off')
         expect(() => selectionTriggerSchema.parse('invalid')).toThrow()
+        expect(webAnalysisScopeSchema.parse('main')).toBe('main')
+        expect(webAnalysisScopeSchema.parse('full')).toBe('full')
+        expect(() => webAnalysisScopeSchema.parse('body')).toThrow()
         expect(sourceLanguageSchema.parse('ja')).toBe('ja')
         expect(
             translationLanguagesSchema.parse({ sourceLanguage: 'en', targetLanguage: '简体中文' }),

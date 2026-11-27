@@ -6,9 +6,15 @@ import ReadingPanel from '../../components/ReadingPanel.vue'
 import SelectionTriggerIcon from '../../components/SelectionTriggerIcon.vue'
 import { normalizeWord } from '../../domain/vocabulary'
 import { stripTextFragment } from '../../domain/text-fragment'
-import { errorMessage, type SelectionTrigger, type Word, type WordSource } from '../../domain/models'
+import {
+    errorMessage,
+    type SelectionTrigger,
+    type WebAnalysisScope,
+    type Word,
+    type WordSource,
+} from '../../domain/models'
 import { onReadingChanged, onVocabularyChanged, request } from '../../platform/messages'
-import { PageAnalyzer } from './page-analyzer'
+import { PageAnalyzer, resolveWebAnalysisRoot } from './page-analyzer'
 import { selectionAnchor } from '../reading/selection-anchor'
 import { selectionContextWithFragment } from '../reading/selection-context'
 import { useSpotlight } from '../reading/use-spotlight'
@@ -27,8 +33,15 @@ const pendingSelection = shallowRef<{
     textFragment?: string
 }>()
 const sourceId = ref(location.pathname + location.search)
+const webAnalysisScope = ref<WebAnalysisScope>('main')
 const rating = computed(() => words.value?.find((word) => word.key === normalizeWord(selected.value)))
-let analyzer: PageAnalyzer
+let analyzer: PageAnalyzer | undefined
+let activeRoot: HTMLElement | undefined
+let activeLocation = ''
+let activeScope: WebAnalysisScope = 'main'
+let documentObserver: MutationObserver | undefined
+let reconcileTimer: ReturnType<typeof setTimeout> | undefined
+let unmounted = false
 let unsubscribe: (() => void) | undefined
 let unsubscribeReading: (() => void) | undefined
 let refreshing = 0
@@ -67,6 +80,62 @@ async function loadSelectionTrigger() {
     } catch {
         selectionTrigger.value = 'auto'
     }
+}
+async function loadWebAnalysisScope() {
+    try {
+        const next = await request('webAnalysisScope')
+        if (unmounted) return
+        webAnalysisScope.value = next
+        reconcileAnalyzer()
+    } catch {
+        webAnalysisScope.value = 'main'
+    }
+}
+function startAnalyzer(root: HTMLElement, scope: WebAnalysisScope, locationKey: string) {
+    analyzer?.destroy()
+    activeRoot = root
+    activeScope = scope
+    activeLocation = locationKey
+    counts.value = new Map()
+    status.value = t('web.preparing')
+    analyzer = new PageAnalyzer(
+        root,
+        (snapshot) => {
+            const currentLocation = location.pathname + location.search
+            if (sourceId.value !== currentLocation) {
+                sourceId.value = currentLocation
+                closeWordCard()
+            }
+            counts.value = snapshot.counts
+            status.value = snapshot.status
+        },
+        { includeChrome: scope === 'full' },
+    )
+    if (words.value) analyzer.setWords(words.value)
+    analyzer.setHighlight(highlighting.value)
+    analyzer.start()
+}
+function reconcileAnalyzer() {
+    if (unmounted || !document.body) return
+    const nextScope = webAnalysisScope.value
+    const nextRoot = resolveWebAnalysisRoot(nextScope)
+    const nextLocation = location.pathname + location.search
+    const locationChanged = nextLocation !== activeLocation
+    const rootChanged = !analyzer || !activeRoot?.isConnected || nextRoot !== activeRoot
+    const scopeChanged = nextScope !== activeScope
+    if (!locationChanged && !rootChanged && !scopeChanged) return
+    if (locationChanged) {
+        sourceId.value = nextLocation
+        closeWordCard()
+    }
+    startAnalyzer(nextRoot, nextScope, nextLocation)
+}
+function scheduleReconcile() {
+    if (unmounted || reconcileTimer) return
+    reconcileTimer = setTimeout(() => {
+        reconcileTimer = undefined
+        reconcileAnalyzer()
+    }, 80)
 }
 function select(text: string, position: HTMLElement | Range, context = '', textFragment?: string) {
     pendingSelection.value = undefined
@@ -124,32 +193,44 @@ function onPanelDragStart() {
     if (anchor.value instanceof HTMLElement) closeWordCard()
 }
 onMounted(() => {
-    const root = document.querySelector<HTMLElement>('main, article, [role="main"]') ?? document.body
-    analyzer = new PageAnalyzer(root, (snapshot) => {
-        const locationKey = location.pathname + location.search
-        if (sourceId.value !== locationKey) {
-            sourceId.value = locationKey
-            closeWordCard()
+    reconcileAnalyzer()
+    // Watch document-level DOM swaps so SPA route transitions replacing <main>/<article> trigger fresh analysis.
+    documentObserver = new MutationObserver((records) => {
+        for (const record of records) {
+            if (record.target instanceof Element && record.target.closest('#xgloss-root')) continue
+            scheduleReconcile()
+            return
         }
-        counts.value = snapshot.counts
-        status.value = snapshot.status
     })
-    analyzer.setHighlight(highlighting.value)
-    analyzer.start()
+    documentObserver.observe(document.documentElement, { childList: true, subtree: true })
+    window.addEventListener('popstate', scheduleReconcile)
+    window.addEventListener('hashchange', scheduleReconcile)
+    window.addEventListener('wxt:locationchange', scheduleReconcile)
     void refresh()
     void loadSelectionTrigger()
+    void loadWebAnalysisScope()
     unsubscribe = onVocabularyChanged(() => void refresh())
     unsubscribeReading = onReadingChanged((change) => {
         if (change === 'selectionTrigger') void loadSelectionTrigger()
+        if (change === 'webAnalysisScope') void loadWebAnalysisScope()
+        if (change === 'pageNavigation') scheduleReconcile()
     })
     document.addEventListener('mouseup', selection)
     document.addEventListener('keyup', keyboard)
 })
 onBeforeUnmount(() => {
+    unmounted = true
     refreshing++
+    clearTimeout(reconcileTimer)
+    reconcileTimer = undefined
+    documentObserver?.disconnect()
+    documentObserver = undefined
     analyzer?.destroy()
     unsubscribe?.()
     unsubscribeReading?.()
+    window.removeEventListener('popstate', scheduleReconcile)
+    window.removeEventListener('hashchange', scheduleReconcile)
+    window.removeEventListener('wxt:locationchange', scheduleReconcile)
     document.removeEventListener('mouseup', selection)
     document.removeEventListener('keyup', keyboard)
 })

@@ -32,6 +32,7 @@ import {
     loadSpotlight,
     loadTranslationLanguages,
     loadTranslationProviders,
+    loadWebAnalysisScope,
     loadWordbookProfiles,
     providerToTranslationSettings,
     saveActiveCollectionId,
@@ -47,6 +48,7 @@ import {
     saveTargetLanguage,
     saveTranslationLanguages,
     saveTranslationProvider,
+    saveWebAnalysisScope,
     saveWordbookProfile,
     setActiveTranslationProvider,
 } from '../data/settings'
@@ -66,6 +68,7 @@ import {
     sourceSchema,
     translationInputSchema,
     translationLanguagesSchema,
+    webAnalysisScopeSchema,
     type GoogleSyncConfig,
     type GoogleSyncState,
     type TranslationResult,
@@ -83,9 +86,8 @@ import {
 } from './google-drive-sync'
 import {
     appendWordsToWordbook,
-    enqueueWordbookTask,
+    enqueueWordbookAutoSync,
     listWordbookCategories,
-    removeWordsFromWordbook,
     wordbookOrigin,
 } from './wordbook-sync'
 
@@ -145,6 +147,7 @@ const privileged = new Set([
     'setBookmark',
     'setSiteAnalysis',
     'setSelectionTrigger',
+    'setWebAnalysisScope',
     'setTranslationLanguages',
     'activeCollection',
     'setActiveCollection',
@@ -182,12 +185,20 @@ async function scheduleAutoWordbookSync(
     })
     if (!hasPermission) return
     if (state === 'learning') {
-        enqueueWordbookTask(profile.id, async () => {
-            await appendWordsToWordbook(profile, binding.categoryId, collection.language, [wordText])
+        enqueueWordbookAutoSync({
+            profile,
+            categoryId: binding.categoryId,
+            language: collection.language,
+            word: wordText,
+            action: 'add',
         })
     } else if (state === 'known' && binding.onMastered === 'remove') {
-        enqueueWordbookTask(profile.id, async () => {
-            await removeWordsFromWordbook(profile, binding.categoryId, collection.language, [wordText])
+        enqueueWordbookAutoSync({
+            profile,
+            categoryId: binding.categoryId,
+            language: collection.language,
+            word: wordText,
+            action: 'remove',
         })
     }
 }
@@ -287,6 +298,12 @@ async function execute(
         case 'setSelectionTrigger':
             await saveSelectionTrigger(selectionTriggerSchema.parse(message.input))
             await notifyChanged({ event: 'selectionTriggerChanged' })
+            return null
+        case 'webAnalysisScope':
+            return loadWebAnalysisScope()
+        case 'setWebAnalysisScope':
+            await saveWebAnalysisScope(webAnalysisScopeSchema.parse(message.input))
+            await notifyChanged({ event: 'webAnalysisScopeChanged' })
             return null
         case 'translationLanguages':
             return loadTranslationLanguages()

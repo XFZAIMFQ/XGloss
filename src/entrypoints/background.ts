@@ -1,6 +1,7 @@
 import { t } from '../i18n'
 import { browser } from 'wxt/browser'
 import { defineBackground } from 'wxt/utils/define-background'
+import { webHostname } from '../platform/web-site'
 import { handleMessage } from '../services/background-handler'
 
 export default defineBackground(() => {
@@ -29,6 +30,13 @@ export default defineBackground(() => {
             void browser.tabs.create({
                 url: browser.runtime.getURL('/reader.html') + '?url=' + encodeURIComponent(info.linkUrl),
             })
+        }
+    })
+    browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+        if (changeInfo.url && webHostname(changeInfo.url)) {
+            void browser.tabs
+                .sendMessage(tabId, { event: 'pageNavigationChanged', url: changeInfo.url }, { frameId: 0 })
+                .catch(() => undefined)
         }
     })
 })

@@ -21,6 +21,7 @@ import type {
     TranslationResult,
     TranslationSettings,
     VocabularyCollection,
+    WebAnalysisScope,
     Word,
     WordSource,
     WordRating,
@@ -126,6 +127,8 @@ export interface Operations {
     saveReadingPanelPosition: { input: ReadingPanelPosition; output: ReadingPanelPosition }
     selectionTrigger: { input: undefined; output: SelectionTrigger }
     setSelectionTrigger: { input: SelectionTrigger; output: null }
+    webAnalysisScope: { input: undefined; output: WebAnalysisScope }
+    setWebAnalysisScope: { input: WebAnalysisScope; output: null }
     translationLanguages: { input: undefined; output: TranslationLanguages }
     setTranslationLanguages: { input: TranslationLanguages; output: TranslationLanguages }
     activeCollection: { input: undefined; output: string }
@@ -191,7 +194,14 @@ export function onVocabularyChanged(callback: () => void): () => void {
 }
 
 export type ReadingChange =
-    'site' | 'recall' | 'spotlight' | 'selectionTrigger' | 'translationLanguages' | 'activeCollection'
+    | 'site'
+    | 'recall'
+    | 'spotlight'
+    | 'selectionTrigger'
+    | 'webAnalysisScope'
+    | 'pageNavigation'
+    | 'translationLanguages'
+    | 'activeCollection'
 
 export function onReadingChanged(callback: (change: ReadingChange, site?: string) => void) {
     const listener = (message: unknown) => {
@@ -201,6 +211,8 @@ export function onReadingChanged(callback: (change: ReadingChange, site?: string
         if (message.event === 'candidateRecallChanged') callback('recall')
         if (message.event === 'spotlightChanged') callback('spotlight')
         if (message.event === 'selectionTriggerChanged') callback('selectionTrigger')
+        if (message.event === 'webAnalysisScopeChanged') callback('webAnalysisScope')
+        if (message.event === 'pageNavigationChanged') callback('pageNavigation')
         if (message.event === 'translationLanguagesChanged') callback('translationLanguages')
         if (message.event === 'activeCollectionChanged') callback('activeCollection')
     }

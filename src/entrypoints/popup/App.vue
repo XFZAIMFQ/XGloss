@@ -10,6 +10,7 @@ import {
     type SelectionTrigger,
     type TranslationLanguages,
     type VocabularyCollection,
+    type WebAnalysisScope,
     type Word,
 } from '../../domain/models'
 import {
@@ -31,6 +32,7 @@ const allWords = ref<Word[]>([])
 const collections = ref<VocabularyCollection[]>([])
 const activeCollectionId = ref(defaultCollectionId)
 const selectionTrigger = ref<SelectionTrigger>('auto')
+const webAnalysisScope = ref<WebAnalysisScope>('main')
 const languages = ref<TranslationLanguages>({
     sourceLanguage: 'auto',
     targetLanguage: defaultTranslationSettings.targetLanguage,
@@ -44,6 +46,10 @@ const triggerOptions: readonly { value: SelectionTrigger; label: string }[] = [
     { value: 'auto', label: t('popup.triggerAuto') },
     { value: 'icon', label: t('popup.triggerIcon') },
     { value: 'off', label: t('popup.triggerOff') },
+]
+const scopeOptions: readonly { value: WebAnalysisScope; label: string }[] = [
+    { value: 'main', label: t('popup.scopeMain') },
+    { value: 'full', label: t('popup.scopeFull') },
 ]
 
 const collectionSelectOptions = computed<SelectOption[]>(() => {
@@ -93,11 +99,12 @@ async function ensureAttached(tabId: number) {
 
 onMounted(async () => {
     try {
-        const [words, collectionList, activeId, trigger, translationLangs, [tab]] = await Promise.all([
+        const [words, collectionList, activeId, trigger, scope, translationLangs, [tab]] = await Promise.all([
             request('words'),
             request('collections'),
             request('activeCollection'),
             request('selectionTrigger'),
+            request('webAnalysisScope'),
             request('translationLanguages'),
             browser.tabs.query({ active: true, currentWindow: true }),
         ])
@@ -106,6 +113,7 @@ onMounted(async () => {
         collections.value = collectionList
         activeCollectionId.value = activeId
         selectionTrigger.value = trigger
+        webAnalysisScope.value = scope
         languages.value = translationLangs
         const url = tab?.url && URL.canParse(tab.url) ? new URL(tab.url) : null
         if (url && ['http:', 'https:'].includes(url.protocol) && /\.pdf$/i.test(url.pathname)) {
@@ -154,6 +162,22 @@ async function changeSelectionTrigger(next: SelectionTrigger) {
         await request('setSelectionTrigger', next)
     } catch (reason) {
         selectionTrigger.value = previous
+        error.value = errorMessage(reason)
+    } finally {
+        savingPrefs.value = false
+    }
+}
+
+async function changeWebAnalysisScope(next: WebAnalysisScope) {
+    if (webAnalysisScope.value === next || savingPrefs.value) return
+    const previous = webAnalysisScope.value
+    webAnalysisScope.value = next
+    savingPrefs.value = true
+    error.value = ''
+    try {
+        await request('setWebAnalysisScope', next)
+    } catch (reason) {
+        webAnalysisScope.value = previous
         error.value = errorMessage(reason)
     } finally {
         savingPrefs.value = false
@@ -272,21 +296,45 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
             </button>
 
             <div class="popup-trigger-card">
-                <span class="popup-setting-label">{{ t('popup.selectionTrigger') }}</span>
-                <div class="segmented-control" role="radiogroup" :aria-label="t('popup.selectionTrigger')">
-                    <button
-                        v-for="option in triggerOptions"
-                        :key="option.value"
-                        type="button"
-                        role="radio"
-                        class="segmented-option"
-                        :class="{ 'is-active': selectionTrigger === option.value }"
-                        :aria-checked="selectionTrigger === option.value"
-                        :disabled="savingPrefs"
-                        @click="changeSelectionTrigger(option.value)"
+                <div class="popup-segmented-row">
+                    <span class="popup-setting-label">{{ t('popup.selectionTrigger') }}</span>
+                    <div
+                        class="segmented-control"
+                        role="radiogroup"
+                        :aria-label="t('popup.selectionTrigger')"
                     >
-                        {{ option.label }}
-                    </button>
+                        <button
+                            v-for="option in triggerOptions"
+                            :key="option.value"
+                            type="button"
+                            role="radio"
+                            class="segmented-option"
+                            :class="{ 'is-active': selectionTrigger === option.value }"
+                            :aria-checked="selectionTrigger === option.value"
+                            :disabled="savingPrefs"
+                            @click="changeSelectionTrigger(option.value)"
+                        >
+                            {{ option.label }}
+                        </button>
+                    </div>
+                </div>
+                <div class="popup-segmented-row">
+                    <span class="popup-setting-label">{{ t('popup.scopeLabel') }}</span>
+                    <div class="segmented-control" role="radiogroup" :aria-label="t('popup.scopeLabel')">
+                        <button
+                            v-for="option in scopeOptions"
+                            :key="option.value"
+                            type="button"
+                            role="radio"
+                            class="segmented-option"
+                            :class="{ 'is-active': webAnalysisScope === option.value }"
+                            :aria-checked="webAnalysisScope === option.value"
+                            :disabled="savingPrefs"
+                            @click="changeWebAnalysisScope(option.value)"
+                        >
+                            {{ option.label }}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -644,6 +692,11 @@ async function open(page: '/reader.html' | '/library.html' | '/options.html') {
 
 .popup-trigger-card {
     padding: 8px 11px;
+    display: grid;
+    gap: 8px;
+}
+
+.popup-segmented-row {
     display: flex;
     align-items: center;
     justify-content: space-between;

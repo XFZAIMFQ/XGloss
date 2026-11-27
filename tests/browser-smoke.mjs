@@ -466,6 +466,12 @@ try {
                         input: 'off',
                         requestId: crypto.randomUUID(),
                     })
+                    const attemptedScope = await chrome.runtime.sendMessage({
+                        channel: 'xgloss',
+                        operation: 'setWebAnalysisScope',
+                        input: 'full',
+                        requestId: crypto.randomUUID(),
+                    })
                     const attemptedLangs = await chrome.runtime.sendMessage({
                         channel: 'xgloss',
                         operation: 'setTranslationLanguages',
@@ -508,6 +514,7 @@ try {
                         settings: settings.ok,
                         siteAnalysis: attemptedChange.ok,
                         setSelectionTrigger: attemptedTrigger.ok,
+                        setWebAnalysisScope: attemptedScope.ok,
                         setTranslationLanguages: attemptedLangs.ok,
                         activeCollection: attemptedActive.ok,
                         setActiveCollection: attemptedSetActive.ok,
@@ -524,6 +531,7 @@ try {
         settings: false,
         siteAnalysis: false,
         setSelectionTrigger: false,
+        setWebAnalysisScope: false,
         setTranslationLanguages: false,
         activeCollection: false,
         setActiveCollection: false,
@@ -537,6 +545,38 @@ try {
         () =>
             document.querySelector('#xgloss-root')?.shadowRoot?.querySelector('.statistics dd')
                 ?.textContent === '15,992',
+    )
+    // Verify SPA route navigation that replaces the entire <main> element triggers fresh analysis.
+    await article.evaluate(() => {
+        history.pushState({}, '', '/docs/learn_the_basics')
+        const nextMain = document.createElement('main')
+        nextMain.innerHTML = '<p>Embedded display driver framebuffer rendering tutorial.</p>'
+        document.querySelector('main').replaceWith(nextMain)
+    })
+    await readingPanel.waitFor({ state: 'detached' })
+    await badge.click()
+    await article.waitForFunction(
+        () =>
+            document.querySelector('#xgloss-root')?.shadowRoot?.querySelector('.statistics dd')
+                ?.textContent === '6',
+    )
+    await readingPanel.locator('.candidate-item').filter({ hasText: 'framebuffer' }).waitFor()
+    // Verify webAnalysisScope='full' includes <header>/<nav> elements outside <main> in real time.
+    await options.getByRole('combobox', { name: '网页识别范围' }).click()
+    await options.getByRole('option', { name: '整页内容 (含导航与侧栏)' }).click()
+    await options.getByText('网页识别范围已保存', { exact: true }).waitFor()
+    await article.waitForFunction(
+        () =>
+            document.querySelector('#xgloss-root')?.shadowRoot?.querySelector('.statistics dd')
+                ?.textContent === '7',
+    )
+    await options.getByRole('combobox', { name: '网页识别范围' }).click()
+    await options.getByRole('option', { name: '仅正文区域 (默认)' }).click()
+    await options.getByText('网页识别范围已保存', { exact: true }).waitFor()
+    await article.waitForFunction(
+        () =>
+            document.querySelector('#xgloss-root')?.shadowRoot?.querySelector('.statistics dd')
+                ?.textContent === '6',
     )
     const otherSite = await context.newPage()
     await otherSite.goto(origin.replace('127.0.0.1', 'xgloss-test.test') + '/article')

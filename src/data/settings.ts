@@ -12,6 +12,7 @@ import {
     translationProviderInputSchema,
     translationProvidersStateSchema,
     translationSettingsSchema,
+    webAnalysisScopeSchema,
     wordbookProfileInputSchema,
     wordbookProfileSchema,
     type GoogleSyncConfig,
@@ -22,6 +23,7 @@ import {
     type TranslationProvider,
     type TranslationProvidersState,
     type TranslationSettings,
+    type WebAnalysisScope,
     type WordbookProfile,
     type WordbookProfileSummary,
 } from '../domain/models'
@@ -243,6 +245,18 @@ export async function saveSelectionTrigger(trigger: SelectionTrigger): Promise<S
     return valid
 }
 
+export async function loadWebAnalysisScope(): Promise<WebAnalysisScope> {
+    const stored = await browser.storage.local.get('webAnalysisScope')
+    const parsed = webAnalysisScopeSchema.safeParse(stored.webAnalysisScope)
+    return parsed.success ? parsed.data : 'main'
+}
+
+export async function saveWebAnalysisScope(scope: WebAnalysisScope): Promise<WebAnalysisScope> {
+    const valid = webAnalysisScopeSchema.parse(scope)
+    await browser.storage.local.set({ webAnalysisScope: valid })
+    return valid
+}
+
 export async function loadActiveCollectionId(): Promise<string | undefined> {
     const stored = await browser.storage.local.get('activeCollectionId')
     return typeof stored.activeCollectionId === 'string' && stored.activeCollectionId.trim()
@@ -412,10 +426,7 @@ export async function loadReadingPanelPosition(scope: string): Promise<ReadingPa
     return parsed.data[scope] ?? null
 }
 
-export async function saveReadingPanelPosition(
-    scope: string,
-    input: unknown,
-): Promise<ReadingPanelPosition> {
+export async function saveReadingPanelPosition(scope: string, input: unknown): Promise<ReadingPanelPosition> {
     const position = readingPanelPositionSchema.parse(input)
     const stored = await browser.storage.local.get('readingPanelPositions')
     const parsed = readingPanelPositionsSchema.safeParse(stored.readingPanelPositions)

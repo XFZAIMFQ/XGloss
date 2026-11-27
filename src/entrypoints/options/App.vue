@@ -6,11 +6,13 @@ import {
     defaultTranslationSettings,
     definitionModeSchema,
     errorMessage,
+    webAnalysisScopeSchema,
     wordbookProviderTypeSchema,
     type DefinitionMode,
     type GoogleSyncState,
     type TranslationProvider,
     type TranslationProvidersState,
+    type WebAnalysisScope,
     type WordbookProfile,
     type WordbookProviderType,
 } from '../../domain/models'
@@ -59,12 +61,18 @@ const providerForm = reactive({
     timeoutMs: defaultTranslationSettings.timeoutMs,
 })
 const definitionMode = ref<DefinitionMode>('simple')
+const webAnalysisScope = ref<WebAnalysisScope>('main')
 const savingMode = ref(false)
+const savingScope = ref(false)
 const savingTarget = ref(false)
 const modeStatus = ref('')
 const definitionModeOptions: readonly SelectOption[] = [
     { value: 'simple', label: t('settings.simple') },
     { value: 'detailed', label: t('settings.detailed') },
+]
+const webScopeOptions: readonly SelectOption[] = [
+    { value: 'main', label: t('settings.webScopeMain') },
+    { value: 'full', label: t('settings.webScopeFull') },
 ]
 const wordbookTypeOptions: readonly SelectOption[] = [
     { value: 'eudic', label: t('wordbook.eudic') },
@@ -130,14 +138,16 @@ onMounted(async () => {
     syncSectionFromHash()
     window.addEventListener('hashchange', syncSectionFromHash)
     try {
-        const [providerState, mode, profiles, syncState] = await Promise.all([
+        const [providerState, mode, scope, profiles, syncState] = await Promise.all([
             request('translationProviders'),
             request('definitionMode'),
+            request('webAnalysisScope'),
             request('wordbookProfiles'),
             request('googleSyncState'),
         ])
         applyState(providerState)
         definitionMode.value = mode
+        webAnalysisScope.value = scope
         wordbooks.value = profiles
         applyGoogleSync(syncState)
     } catch (reason) {
@@ -316,6 +326,22 @@ async function updateDefinitionMode(nextValue: string) {
         error.value = errorMessage(reason)
     } finally {
         savingMode.value = false
+    }
+}
+
+async function updateWebAnalysisScope(nextValue: string) {
+    savingScope.value = true
+    modeStatus.value = ''
+    error.value = ''
+    try {
+        const scope = webAnalysisScopeSchema.parse(nextValue)
+        await request('setWebAnalysisScope', scope)
+        webAnalysisScope.value = scope
+        modeStatus.value = t('settings.webScopeSaved')
+    } catch (reason) {
+        error.value = errorMessage(reason)
+    } finally {
+        savingScope.value = false
     }
 }
 
@@ -870,6 +896,22 @@ function formatSyncTime(timestamp: number): string {
                                     :disabled="savingMode"
                                     :aria-label="t('settings.defaultMode')"
                                     @update:model-value="updateDefinitionMode"
+                                />
+                            </div>
+                        </div>
+
+                        <div class="settings-split-row">
+                            <div class="settings-split-meta">
+                                <h3>{{ t('settings.webScope') }}</h3>
+                                <p class="muted small">{{ t('settings.webScopeHelp') }}</p>
+                            </div>
+                            <div class="settings-split-control compact">
+                                <ShadcnSelect
+                                    :model-value="webAnalysisScope"
+                                    :options="webScopeOptions"
+                                    :disabled="savingScope"
+                                    :aria-label="t('settings.webScope')"
+                                    @update:model-value="updateWebAnalysisScope"
                                 />
                             </div>
                         </div>
